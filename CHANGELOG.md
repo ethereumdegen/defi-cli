@@ -75,6 +75,7 @@ Format:
 
 ### Fixed
 - Improved bridge execution error messaging to clearly distinguish quote-only providers from execution-capable providers.
+- Fixed execution read-after-write consistency for sequential on-chain steps by reusing RPC clients per action, gating on confirmed block visibility, and waiting for ERC-20 allowance state visibility after successful approval receipts.
 
 ### Docs
 - Documented bridge/lend/rewards/approvals execution flows, signer env inputs, command behavior, and exit codes in `README.md`.

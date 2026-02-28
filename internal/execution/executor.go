@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -38,6 +39,21 @@ var (
 	settlementHTTPClient = httpx.New(10*time.Second, 2)
 	signerNonceLocks     sync.Map
 )
+
+type contractCaller interface {
+	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+}
+
+type headerReader interface {
+	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
+}
+
+type approvalExpectation struct {
+	Token   common.Address
+	Owner   common.Address
+	Spender common.Address
+	Amount  *big.Int
+}
 
 func DefaultExecuteOptions() ExecuteOptions {
 	return ExecuteOptions{
@@ -77,12 +93,24 @@ func ExecuteAction(ctx context.Context, store *Store, action *Action, txSigner s
 	action.FromAddress = txSigner.Address().Hex()
 	persist()
 
+	rpcClients := make(map[string]*ethclient.Client)
+	defer func() {
+		for _, client := range rpcClients {
+			if client != nil {
+				client.Close()
+			}
+		}
+	}()
+	requiredHeadByRPC := make(map[string]*big.Int)
+
 	for i := range action.Steps {
 		step := &action.Steps[i]
 		if step.Status == StepStatusConfirmed {
 			continue
 		}
-		if strings.TrimSpace(step.RPCURL) == "" {
+		stepRPCURL := strings.TrimSpace(step.RPCURL)
+		step.RPCURL = stepRPCURL
+		if stepRPCURL == "" {
 			markStepFailed(action, step, "missing rpc url")
 			persist()
 			return clierr.New(clierr.CodeUsage, "missing rpc url for action step")
@@ -97,22 +125,43 @@ func ExecuteAction(ctx context.Context, store *Store, action *Action, txSigner s
 			persist()
 			return clierr.New(clierr.CodeUsage, "invalid target address for action step")
 		}
-		client, err := ethclient.DialContext(ctx, step.RPCURL)
-		if err != nil {
-			markStepFailed(action, step, err.Error())
-			persist()
-			return clierr.Wrap(clierr.CodeUnavailable, "connect rpc", err)
+		client := rpcClients[stepRPCURL]
+		if client == nil {
+			var err error
+			client, err = ethclient.DialContext(ctx, stepRPCURL)
+			if err != nil {
+				markStepFailed(action, step, err.Error())
+				persist()
+				return clierr.Wrap(clierr.CodeUnavailable, "connect rpc", err)
+			}
+			rpcClients[stepRPCURL] = client
 		}
 
-		if err := executeStep(ctx, client, txSigner, action, step, opts, persist); err != nil {
-			client.Close()
+		if minRequiredHead := requiredHeadByRPC[stepRPCURL]; minRequiredHead != nil {
+			waitCtx, cancel := context.WithTimeout(ctx, opts.StepTimeout)
+			err := waitForRPCHeadAtLeast(waitCtx, client, minRequiredHead, opts.PollInterval)
+			cancel()
+			if err != nil {
+				markStepFailed(action, step, err.Error())
+				persist()
+				return err
+			}
+		}
+
+		confirmedBlock, err := executeStep(ctx, client, txSigner, action, step, opts, persist)
+		if err != nil {
 			if step.Status != StepStatusFailed {
 				markStepFailed(action, step, err.Error())
 			}
 			persist()
 			return err
 		}
-		client.Close()
+
+		if confirmedBlock != nil {
+			if current := requiredHeadByRPC[stepRPCURL]; current == nil || current.Cmp(confirmedBlock) < 0 {
+				requiredHeadByRPC[stepRPCURL] = confirmedBlock
+			}
+		}
 		persist()
 	}
 	action.Status = ActionStatusCompleted
@@ -120,32 +169,32 @@ func ExecuteAction(ctx context.Context, store *Store, action *Action, txSigner s
 	return nil
 }
 
-func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.Signer, action *Action, step *ActionStep, opts ExecuteOptions, persist func()) error {
+func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.Signer, action *Action, step *ActionStep, opts ExecuteOptions, persist func()) (*big.Int, error) {
 	chainID, err := client.ChainID(ctx)
 	if err != nil {
-		return clierr.Wrap(clierr.CodeUnavailable, "read chain id", err)
+		return nil, clierr.Wrap(clierr.CodeUnavailable, "read chain id", err)
 	}
 	if step.ChainID != "" {
 		expected := fmt.Sprintf("eip155:%d", chainID.Int64())
 		if !strings.EqualFold(strings.TrimSpace(step.ChainID), expected) {
-			return clierr.New(clierr.CodeActionPlan, fmt.Sprintf("step chain mismatch: expected %s, got %s", expected, step.ChainID))
+			return nil, clierr.New(clierr.CodeActionPlan, fmt.Sprintf("step chain mismatch: expected %s, got %s", expected, step.ChainID))
 		}
 	}
 	if !common.IsHexAddress(step.Target) {
-		return clierr.New(clierr.CodeUsage, "invalid step target address")
+		return nil, clierr.New(clierr.CodeUsage, "invalid step target address")
 	}
 	target := common.HexToAddress(step.Target)
 	step.Target = target.Hex()
 	data, err := decodeHex(step.Data)
 	if err != nil {
-		return clierr.Wrap(clierr.CodeUsage, "decode step calldata", err)
+		return nil, clierr.Wrap(clierr.CodeUsage, "decode step calldata", err)
 	}
 	if err := validateStepPolicy(action, step, chainID.Int64(), data, opts); err != nil {
-		return err
+		return nil, err
 	}
 	value, ok := new(big.Int).SetString(step.Value, 10)
 	if !ok {
-		return clierr.New(clierr.CodeUsage, "invalid step value")
+		return nil, clierr.New(clierr.CodeUsage, "invalid step value")
 	}
 	msg := ethereum.CallMsg{From: txSigner.Address(), To: &target, Value: value, Data: data}
 	if txHash, ok := normalizeStepTxHash(step.TxHash); ok {
@@ -156,7 +205,7 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 
 	if opts.Simulate {
 		if _, err := client.CallContract(ctx, msg, nil); err != nil {
-			return wrapEVMExecutionError(clierr.CodeActionSim, "simulate step (eth_call)", err)
+			return nil, wrapEVMExecutionError(clierr.CodeActionSim, "simulate step (eth_call)", err)
 		}
 		step.Status = StepStatusSimulated
 		safePersist(persist)
@@ -164,20 +213,20 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 
 	gasLimit, err := client.EstimateGas(ctx, msg)
 	if err != nil {
-		return wrapEVMExecutionError(clierr.CodeActionSim, "estimate gas", err)
+		return nil, wrapEVMExecutionError(clierr.CodeActionSim, "estimate gas", err)
 	}
 	gasLimit = uint64(float64(gasLimit) * opts.GasMultiplier)
 	if gasLimit == 0 {
-		return clierr.New(clierr.CodeActionSim, "estimate gas returned zero")
+		return nil, clierr.New(clierr.CodeActionSim, "estimate gas returned zero")
 	}
 
 	tipCap, err := resolveTipCap(ctx, client, opts.MaxPriorityFeeGwei)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	header, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		return clierr.Wrap(clierr.CodeUnavailable, "fetch latest header", err)
+		return nil, clierr.Wrap(clierr.CodeUnavailable, "fetch latest header", err)
 	}
 	baseFee := header.BaseFee
 	if baseFee == nil {
@@ -185,13 +234,13 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 	}
 	feeCap, err := resolveFeeCap(baseFee, tipCap, opts.MaxFeeGwei)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	unlockNonce := acquireSignerNonceLock(chainID, txSigner.Address())
 	defer unlockNonce()
 	nonce, err := client.PendingNonceAt(ctx, txSigner.Address())
 	if err != nil {
-		return clierr.Wrap(clierr.CodeUnavailable, "fetch nonce", err)
+		return nil, clierr.Wrap(clierr.CodeUnavailable, "fetch nonce", err)
 	}
 
 	tx := types.NewTx(&types.DynamicFeeTx{
@@ -206,10 +255,10 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 	})
 	signed, err := txSigner.SignTx(chainID, tx)
 	if err != nil {
-		return clierr.Wrap(clierr.CodeSigner, "sign transaction", err)
+		return nil, clierr.Wrap(clierr.CodeSigner, "sign transaction", err)
 	}
 	if err := client.SendTransaction(ctx, signed); err != nil {
-		return wrapEVMExecutionError(clierr.CodeUnavailable, "broadcast transaction", err)
+		return nil, wrapEVMExecutionError(clierr.CodeUnavailable, "broadcast transaction", err)
 	}
 	step.Status = StepStatusSubmitted
 	step.TxHash = signed.Hash().Hex()
@@ -217,7 +266,7 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 	return waitForStepConfirmation(ctx, client, step, msg, signed.Hash(), opts, persist)
 }
 
-func waitForStepConfirmation(ctx context.Context, client *ethclient.Client, step *ActionStep, msg ethereum.CallMsg, txHash common.Hash, opts ExecuteOptions, persist func()) error {
+func waitForStepConfirmation(ctx context.Context, client *ethclient.Client, step *ActionStep, msg ethereum.CallMsg, txHash common.Hash, opts ExecuteOptions, persist func()) (*big.Int, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, opts.StepTimeout)
 	defer cancel()
 	ticker := time.NewTicker(opts.PollInterval)
@@ -226,27 +275,33 @@ func waitForStepConfirmation(ctx context.Context, client *ethclient.Client, step
 		receipt, err := client.TransactionReceipt(waitCtx, txHash)
 		if err == nil && receipt != nil {
 			if receipt.Status == types.ReceiptStatusSuccessful {
+				if err := ensurePostConfirmationStateVisible(waitCtx, client, step, msg, opts.PollInterval); err != nil {
+					return nil, err
+				}
 				if err := verifyBridgeSettlement(ctx, step, txHash.Hex(), opts); err != nil {
-					return err
+					return nil, err
 				}
 				step.Status = StepStatusConfirmed
 				safePersist(persist)
-				return nil
+				if receipt.BlockNumber == nil {
+					return nil, nil
+				}
+				return new(big.Int).Set(receipt.BlockNumber), nil
 			}
 			if reason := decodeReceiptRevertReason(waitCtx, client, msg, receipt.BlockNumber); reason != "" {
-				return clierr.New(clierr.CodeUnavailable, "transaction reverted on-chain: "+reason)
+				return nil, clierr.New(clierr.CodeUnavailable, "transaction reverted on-chain: "+reason)
 			}
-			return clierr.New(clierr.CodeUnavailable, "transaction reverted on-chain")
+			return nil, clierr.New(clierr.CodeUnavailable, "transaction reverted on-chain")
 		}
 		if waitCtx.Err() != nil {
-			return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for receipt", waitCtx.Err())
+			return nil, clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for receipt", waitCtx.Err())
 		}
 		if err != nil && !errors.Is(err, ethereum.NotFound) {
 			// Ignore transient RPC polling failures until timeout.
 		}
 		select {
 		case <-waitCtx.Done():
-			return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for receipt", waitCtx.Err())
+			return nil, clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for receipt", waitCtx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -257,6 +312,129 @@ func safePersist(persist func()) {
 		return
 	}
 	persist()
+}
+
+func waitForRPCHeadAtLeast(ctx context.Context, reader headerReader, minBlock *big.Int, pollInterval time.Duration) error {
+	if reader == nil || minBlock == nil || minBlock.Sign() <= 0 {
+		return nil
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		header, err := reader.HeaderByNumber(ctx, nil)
+		if err == nil && header != nil && header.Number != nil && header.Number.Cmp(minBlock) >= 0 {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for rpc backend state", ctx.Err())
+		}
+		select {
+		case <-ctx.Done():
+			return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for rpc backend state", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func ensurePostConfirmationStateVisible(ctx context.Context, caller contractCaller, step *ActionStep, msg ethereum.CallMsg, pollInterval time.Duration) error {
+	if step == nil || step.Type != StepTypeApproval {
+		return nil
+	}
+	expectation, ok, err := approvalExpectationFromCallMsg(msg)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	return waitForAllowanceAtLeast(ctx, caller, expectation, pollInterval)
+}
+
+func approvalExpectationFromCallMsg(msg ethereum.CallMsg) (approvalExpectation, bool, error) {
+	if msg.To == nil || len(msg.Data) < 4 || !bytes.Equal(msg.Data[:4], policyApproveSelector) {
+		return approvalExpectation{}, false, nil
+	}
+	args, err := policyERC20ABI.Methods["approve"].Inputs.Unpack(msg.Data[4:])
+	if err != nil || len(args) != 2 {
+		return approvalExpectation{}, false, clierr.New(clierr.CodeActionPlan, "approval step calldata is invalid")
+	}
+	spender, ok := toAddress(args[0])
+	if !ok || spender == (common.Address{}) {
+		return approvalExpectation{}, false, clierr.New(clierr.CodeActionPlan, "approval step has invalid spender")
+	}
+	amount, ok := toBigInt(args[1])
+	if !ok || amount.Sign() <= 0 {
+		return approvalExpectation{}, false, clierr.New(clierr.CodeActionPlan, "approval step has invalid approval amount")
+	}
+	return approvalExpectation{
+		Token:   *msg.To,
+		Owner:   msg.From,
+		Spender: spender,
+		Amount:  new(big.Int).Set(amount),
+	}, true, nil
+}
+
+func waitForAllowanceAtLeast(ctx context.Context, caller contractCaller, expectation approvalExpectation, pollInterval time.Duration) error {
+	if caller == nil {
+		return clierr.New(clierr.CodeUnavailable, "missing rpc caller for allowance readiness check")
+	}
+	if expectation.Amount == nil || expectation.Amount.Sign() <= 0 {
+		return nil
+	}
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		allowance, err := readTokenAllowance(ctx, caller, expectation.Token, expectation.Owner, expectation.Spender)
+		if err == nil && allowance.Cmp(expectation.Amount) >= 0 {
+			return nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+		if ctx.Err() != nil {
+			if lastErr != nil {
+				return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for approval state visibility", lastErr)
+			}
+			return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for approval state visibility", ctx.Err())
+		}
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for approval state visibility", lastErr)
+			}
+			return clierr.Wrap(clierr.CodeActionTimeout, "timed out waiting for approval state visibility", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func readTokenAllowance(ctx context.Context, caller contractCaller, token, owner, spender common.Address) (*big.Int, error) {
+	allowanceData, err := policyERC20ABI.Pack("allowance", owner, spender)
+	if err != nil {
+		return nil, clierr.Wrap(clierr.CodeInternal, "pack allowance calldata", err)
+	}
+	allowanceRaw, err := caller.CallContract(ctx, ethereum.CallMsg{From: owner, To: &token, Data: allowanceData}, nil)
+	if err != nil {
+		return nil, clierr.Wrap(clierr.CodeUnavailable, "read token allowance", err)
+	}
+	allowanceOut, err := policyERC20ABI.Unpack("allowance", allowanceRaw)
+	if err != nil || len(allowanceOut) == 0 {
+		return nil, clierr.Wrap(clierr.CodeUnavailable, "decode token allowance", err)
+	}
+	allowance, ok := allowanceOut[0].(*big.Int)
+	if !ok {
+		return nil, clierr.New(clierr.CodeUnavailable, "invalid allowance response")
+	}
+	return allowance, nil
 }
 
 func normalizeStepTxHash(value string) (common.Hash, bool) {
