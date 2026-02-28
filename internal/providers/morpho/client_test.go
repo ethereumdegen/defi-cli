@@ -379,6 +379,102 @@ func TestLendPositionsTypeSplit(t *testing.T) {
 	}
 }
 
+func TestYieldPositionsVaults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+
+		if !strings.Contains(string(body), "vaultPositions") {
+			_, _ = w.Write([]byte(`{"errors":[{"message":"unexpected query"}]}`))
+			return
+		}
+
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"vaultPositions": {
+					"items": [
+						{
+							"id": "vault-position-1",
+							"user": {"address": "0x000000000000000000000000000000000000dEaD"},
+							"vault": {
+								"address": "0x1111111111111111111111111111111111111111",
+								"asset": {
+									"address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+									"symbol": "USDC",
+									"decimals": 6,
+									"chain": {"id": 1, "network": "ethereum"}
+								},
+								"state": {"netApy": 0.04}
+							},
+							"state": {
+								"shares": "10000000000000000000",
+								"assets": "10100000",
+								"assetsUsd": 10.1
+							}
+						},
+						{
+							"id": "vault-position-2",
+							"user": {"address": "0x000000000000000000000000000000000000dEaD"},
+							"vault": {
+								"address": "0x2222222222222222222222222222222222222222",
+								"asset": {
+									"address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+									"symbol": "USDT",
+									"decimals": 6,
+									"chain": {"id": 1, "network": "ethereum"}
+								},
+								"state": {"netApy": 0.06}
+							},
+							"state": {
+								"shares": "5000000000000000000",
+								"assets": "5050000",
+								"assetsUsd": 5.05
+							}
+						}
+					]
+				}
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	client := New(httpx.New(2*time.Second, 0))
+	client.endpoint = srv.URL
+	chain, _ := id.ParseChain("ethereum")
+	account := "0x000000000000000000000000000000000000dEaD"
+
+	rows, err := client.YieldPositions(context.Background(), providers.YieldPositionsRequest{
+		Chain:   chain,
+		Account: account,
+		Asset: id.Asset{
+			ChainID: chain.CAIP2,
+			Symbol:  "USDC",
+		},
+	})
+	if err != nil {
+		t.Fatalf("YieldPositions failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one USDC vault row, got %+v", rows)
+	}
+	row := rows[0]
+	if row.PositionType != "deposit" {
+		t.Fatalf("expected deposit position, got %+v", row)
+	}
+	if row.ProviderNativeIDKind != model.NativeIDKindVaultAddress {
+		t.Fatalf("expected vault_address provider native kind, got %+v", row)
+	}
+	if row.Amount.AmountBaseUnits != "10100000" {
+		t.Fatalf("expected assets base units 10100000, got %+v", row.Amount)
+	}
+	if row.Shares == nil || row.Shares.AmountBaseUnits != "10000000000000000000" {
+		t.Fatalf("expected shares base units, got %+v", row.Shares)
+	}
+	if row.APYTotal != 4 {
+		t.Fatalf("expected apy_total 4, got %+v", row)
+	}
+}
+
 func TestYieldHistoryFromVault(t *testing.T) {
 	fixedNow := time.Date(2026, 2, 26, 20, 0, 0, 0, time.UTC)
 	start := fixedNow.Add(-48 * time.Hour)

@@ -17,6 +17,7 @@ var (
 	policyUniswapV3RouterABI = mustPolicyABI(registry.UniswapV3RouterABI)
 
 	policyApproveSelector     = policyERC20ABI.Methods["approve"].ID
+	policyTransferSelector    = policyERC20ABI.Methods["transfer"].ID
 	policyUniswapV3SwapMethod = policyUniswapV3RouterABI.Methods["exactInputSingle"].ID
 )
 
@@ -31,6 +32,8 @@ func validateStepPolicy(action *Action, step *ActionStep, chainID int64, data []
 	switch step.Type {
 	case StepTypeApproval:
 		return validateApprovalPolicy(action, data, opts)
+	case StepTypeTransfer:
+		return validateTransferPolicy(action, step, data)
 	case StepTypeSwap:
 		return validateSwapPolicy(action, step, chainID, data)
 	case StepTypeBridge:
@@ -71,6 +74,54 @@ func validateApprovalPolicy(action *Action, data []byte, opts ExecuteOptions) er
 			clierr.CodeActionPlan,
 			fmt.Sprintf("approval amount %s exceeds requested input amount %s; use --allow-max-approval to override", amount.String(), requested.String()),
 		)
+	}
+	return nil
+}
+
+func validateTransferPolicy(action *Action, step *ActionStep, data []byte) error {
+	if len(data) < 4 || !bytes.Equal(data[:4], policyTransferSelector) {
+		return clierr.New(clierr.CodeActionPlan, "transfer step must use ERC20 transfer(to,amount)")
+	}
+	args, err := policyERC20ABI.Methods["transfer"].Inputs.Unpack(data[4:])
+	if err != nil || len(args) != 2 {
+		return clierr.New(clierr.CodeActionPlan, "transfer step calldata is invalid")
+	}
+	recipient, ok := toAddress(args[0])
+	if !ok || recipient == (common.Address{}) {
+		return clierr.New(clierr.CodeActionPlan, "transfer step has invalid recipient")
+	}
+	amount, ok := toBigInt(args[1])
+	if !ok || amount.Sign() <= 0 {
+		return clierr.New(clierr.CodeActionPlan, "transfer step has invalid transfer amount")
+	}
+	if action == nil {
+		return nil
+	}
+	requested, ok := parsePositiveBaseUnits(action.InputAmount)
+	if !ok {
+		return clierr.New(clierr.CodeActionPlan, "cannot validate transfer amount for non-numeric input amount")
+	}
+	if amount.Cmp(requested) != 0 {
+		return clierr.New(
+			clierr.CodeActionPlan,
+			fmt.Sprintf("transfer amount %s does not match requested input amount %s", amount.String(), requested.String()),
+		)
+	}
+	if strings.TrimSpace(action.ToAddress) != "" && !strings.EqualFold(strings.TrimSpace(action.ToAddress), recipient.Hex()) {
+		return clierr.New(clierr.CodeActionPlan, "transfer recipient does not match action to_address")
+	}
+	if strings.TrimSpace(step.Target) != "" && !common.IsHexAddress(step.Target) {
+		return clierr.New(clierr.CodeActionPlan, "transfer step has invalid token target")
+	}
+	assetAddress := strings.TrimSpace(metadataString(action.Metadata, "asset_address"))
+	if assetAddress == "" {
+		return clierr.New(clierr.CodeActionPlan, "transfer action missing asset_address metadata")
+	}
+	if !common.IsHexAddress(assetAddress) {
+		return clierr.New(clierr.CodeActionPlan, "transfer action metadata has invalid asset_address")
+	}
+	if !strings.EqualFold(common.HexToAddress(step.Target).Hex(), common.HexToAddress(assetAddress).Hex()) {
+		return clierr.New(clierr.CodeActionPlan, "transfer step target does not match action asset_address")
 	}
 	return nil
 }
@@ -158,6 +209,22 @@ func toBigInt(v any) (*big.Int, bool) {
 		return &cpy, true
 	default:
 		return nil, false
+	}
+}
+
+func metadataString(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	raw, ok := metadata[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch value := raw.(type) {
+	case string:
+		return value
+	default:
+		return ""
 	}
 }
 

@@ -71,6 +71,22 @@ Output notes:
 - `backing_assets` includes the full reported backing composition for each opportunity.
 - `tvl_usd` and `liquidity_usd` are provider-sourced objective metrics (not inferred risk labels).
 
+## `yield positions`
+
+```bash
+defi yield positions --chain 1 --address 0xYourEOA --providers aave,morpho --limit 20 --results-only
+defi yield positions --chain 1 --address 0xYourEOA --providers morpho --asset USDC --results-only
+```
+
+Flags:
+
+- `--chain string` required
+- `--address string` required
+- `--asset string` optional filter (`symbol`/address/CAIP-19)
+- `--providers string` (`aave,morpho,kamino`)
+- `--limit int` (default `20`)
+- `--rpc-url string` optional provider RPC override (only used by providers that need on-chain valuation)
+
 ## `yield history`
 
 ```bash
@@ -98,6 +114,34 @@ Flags:
 - `--opportunity-ids string` optional CSV filter from `yield opportunities`
 - `--limit int` max opportunities per provider (default `20`)
 
+## `yield deposit|withdraw plan|run|submit|status`
+
+```bash
+defi yield deposit plan --provider aave --chain 1 --asset USDC --amount 1000000 --from-address 0xYourEOA --results-only
+defi yield deposit plan --provider morpho --chain 1 --asset USDC --vault-address 0xVault --amount 1000000 --from-address 0xYourEOA --results-only
+defi yield withdraw run --provider morpho --chain 1 --asset USDC --vault-address 0xVault --amount 500000 --from-address 0xYourEOA --results-only
+defi yield deposit submit --action-id <action_id> --results-only
+```
+
+Flags (plan/run):
+
+- `--provider string` (`aave|morpho`) required
+- `--chain string` required
+- `--asset string` required
+- `--amount string` or `--amount-decimal string` required
+- `--from-address string` required for `plan`; optional for `run` (defaults to signer)
+- `--vault-address string` required for `--provider morpho`
+- `--recipient string` optional (defaults to sender)
+- `--on-behalf-of string` optional (defaults to sender)
+- `--rpc-url string` optional
+- `--pool-address string` / `--pool-address-provider string` optional Aave overrides
+- execution controls: `--simulate`, signer flags, gas/fee flags, `--allow-max-approval`, `--unsafe-provider-tx`
+
+Flags (`submit|status`):
+
+- `--action-id string` required
+- `submit` also supports signer/simulation/gas/policy override flags, same as other execution surfaces
+
 ## Provider-selection note
 
 `--providers` accepts provider names, not protocol categories.
@@ -105,3 +149,7 @@ Flags:
 ## Routing note
 
 `lend` and `yield` routes are direct-provider only (`aave`, `morpho`, `kamino`).
+`yield` and `lend` intentionally represent different user intents:
+
+- `yield`: passive deposit/withdraw flows (Morpho vaults, Aave reserve-yield alias)
+- `lend`: loan lifecycle operations (`supply|withdraw|borrow|repay`; Morpho Blue uses `--market-id`)

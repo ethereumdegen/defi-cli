@@ -54,6 +54,19 @@ type YieldProvider interface {
 	YieldOpportunities(ctx context.Context, req YieldRequest) ([]model.YieldOpportunity, error)
 }
 
+type YieldPositionsRequest struct {
+	Chain   id.Chain
+	Account string
+	Asset   id.Asset
+	Limit   int
+	RPCURL  string
+}
+
+type YieldPositionsProvider interface {
+	Provider
+	YieldPositions(ctx context.Context, req YieldPositionsRequest) ([]model.YieldPosition, error)
+}
+
 type YieldHistoryMetric string
 
 const (

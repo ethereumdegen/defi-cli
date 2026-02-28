@@ -52,6 +52,21 @@ func TestBuildLendActionRejectsUnsupportedProvider(t *testing.T) {
 	}
 }
 
+func TestBuildYieldActionRejectsUnsupportedProvider(t *testing.T) {
+	reg := New(nil, nil)
+	_, err := reg.BuildYieldAction(context.Background(), YieldRequest{
+		Provider: "kamino",
+		Verb:     YieldVerbDeposit,
+	})
+	if err == nil {
+		t.Fatal("expected unsupported provider error")
+	}
+	cErr, ok := clierr.As(err)
+	if !ok || cErr.Code != clierr.CodeUnsupported {
+		t.Fatalf("expected unsupported cli error, got %v", err)
+	}
+}
+
 func TestBuildRewardsClaimActionRejectsUnsupportedProvider(t *testing.T) {
 	reg := New(nil, nil)
 	_, err := reg.BuildRewardsClaimAction(context.Background(), RewardsClaimRequest{Provider: "morpho"})
@@ -100,6 +115,34 @@ func TestBuildApprovalActionRoutesToPlanner(t *testing.T) {
 		t.Fatalf("BuildApprovalAction failed: %v", err)
 	}
 	if action.IntentType != "approve" {
+		t.Fatalf("unexpected intent: %s", action.IntentType)
+	}
+}
+
+func TestBuildTransferActionRoutesToPlanner(t *testing.T) {
+	reg := New(nil, nil)
+	chain, err := id.ParseChain("1")
+	if err != nil {
+		t.Fatalf("parse chain: %v", err)
+	}
+	asset, err := id.ParseAsset("USDC", chain)
+	if err != nil {
+		t.Fatalf("parse asset: %v", err)
+	}
+
+	action, err := reg.BuildTransferAction(TransferRequest{
+		Chain:           chain,
+		Asset:           asset,
+		AmountBaseUnits: "1000",
+		Sender:          "0x00000000000000000000000000000000000000aa",
+		Recipient:       "0x00000000000000000000000000000000000000bb",
+		Simulate:        true,
+		RPCURL:          "https://eth.llamarpc.com",
+	})
+	if err != nil {
+		t.Fatalf("BuildTransferAction failed: %v", err)
+	}
+	if action.IntentType != "transfer" {
 		t.Fatalf("unexpected intent: %s", action.IntentType)
 	}
 }

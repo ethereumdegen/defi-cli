@@ -1,6 +1,6 @@
 ---
-title: Bridge and Swap Commands
-description: Full reference for quote and bridge-analytics command families.
+title: Bridge, Swap, and Transfer Commands
+description: Full reference for bridge/swap quote families plus ERC-20 transfer execution commands.
 ---
 
 ## `bridge quote`
@@ -81,3 +81,44 @@ Auth requirements:
 - `fibrous`, `bungee` -> keyless by default
 
 These requirements are driven by provider APIs. `defi-cli` passes through provider auth requirements per route/provider pair.
+
+## `transfer plan|run|submit|status`
+
+```bash
+defi transfer plan --chain taiko --asset USDC --amount 1000000 --from-address 0xYourEOA --recipient 0xRecipient --results-only
+defi transfer run --chain taiko --asset USDC --amount 1000000 --recipient 0xRecipient --results-only
+defi transfer submit --action-id <action_id> --results-only
+defi transfer status --action-id <action_id> --results-only
+```
+
+`transfer` executes a direct ERC-20 `transfer(to,amount)` on the selected chain.
+
+`plan` flags:
+
+- `--chain string` required
+- `--asset string` required
+- `--amount string` or `--amount-decimal string`
+- `--from-address string` required
+- `--recipient string` required
+- `--rpc-url string` optional
+- `--simulate bool` optional (default `true`)
+
+`run` flags:
+
+- `--chain string` required
+- `--asset string` required
+- `--amount string` or `--amount-decimal string`
+- `--recipient string` required
+- `--from-address string` optional (defaults to signer address; if provided it must match signer)
+- `--rpc-url string` optional
+- `--simulate bool` optional (default `true`)
+- `--signer string` (`local`)
+- `--key-source string` (`auto|env|file|keystore`)
+- `--private-key string` optional one-off override
+- `--poll-interval string` (default `2s`)
+- `--step-timeout string` (default `2m`)
+- `--gas-multiplier float` (default `1.2`)
+- `--max-fee-gwei string` optional
+- `--max-priority-fee-gwei string` optional
+
+`submit` uses `--action-id` with the same signer/execution flags as `run`.

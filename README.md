@@ -10,11 +10,11 @@ Built for AI agents and scripts. Stable JSON output, canonical identifiers (CAIP
 
 ## Features
 
-- **Lending** — query markets/rates from Aave/Morpho/Kamino and account positions from Aave/Morpho, plus execute Aave/Morpho lend actions.
-- **Yield** — compare opportunities and query historical yield/TVL series across Aave, Morpho, and Kamino.
+- **Lending** — query markets/rates from Aave/Morpho/Kamino and account positions from Aave/Morpho, plus execute Aave/Morpho loan actions (`lend supply|withdraw|borrow|repay`).
+- **Yield** — compare opportunities, query account yield positions, fetch historical yield/TVL series, and execute yield deposit/withdraw flows.
 - **Bridging** — get cross-chain quotes (Across, LiFi), bridge analytics (volume, chain breakdown), and execute LiFi bridge plans.
 - **Swapping** — get swap quotes (1inch, Uniswap, TaikoSwap) and execute TaikoSwap plans on-chain.
-- **Approvals & rewards** — create and execute ERC-20 approvals, Aave rewards claims, and compound flows.
+- **Approvals, transfers & rewards** — create and execute ERC-20 approvals/transfers plus Aave rewards claim/compound flows.
 - **Chains & protocols** — browse top chains by TVL, inspect chain TVL by asset, discover protocols, resolve asset identifiers.
 - **Automation-friendly** — JSON-first output, field selection (`--select`), strict mode, and a machine-readable schema export.
 
@@ -93,6 +93,7 @@ defi lend markets --provider aave --chain 1 --asset USDC --results-only
 defi lend rates --provider morpho --chain 1 --asset USDC --results-only
 defi lend positions --provider aave --chain 1 --address 0xYourEOA --type all --limit 20 --results-only
 defi yield opportunities --chain base --asset USDC --limit 20 --results-only
+defi yield positions --chain 1 --address 0xYourEOA --providers aave,morpho --limit 20 --results-only
 defi yield opportunities --chain 1 --asset USDC --providers aave,morpho --limit 10 --results-only
 defi yield history --chain 1 --asset USDC --providers aave,morpho --metrics apy_total,tvl_usd --interval day --window 7d --limit 1 --results-only
 defi bridge list --limit 10 --results-only # Requires DEFI_DEFILLAMA_API_KEY
@@ -105,14 +106,16 @@ defi bridge plan --provider lifi --from 1 --to 8453 --asset USDC --amount 100000
 defi bridge plan --provider across --from 1 --to 8453 --asset USDC --amount 1000000 --from-address 0xYourEOA --results-only
 defi lend supply plan --provider aave --chain 1 --asset USDC --amount 1000000 --from-address 0xYourEOA --results-only
 defi lend supply plan --provider morpho --chain 1 --asset USDC --market-id 0x... --amount 1000000 --from-address 0xYourEOA --results-only
+defi yield deposit plan --provider morpho --chain 1 --asset USDC --vault-address 0x... --amount 1000000 --from-address 0xYourEOA --results-only
 defi rewards claim plan --provider aave --chain 1 --from-address 0xYourEOA --assets 0x... --reward-token 0x... --results-only
 defi approvals plan --chain taiko --asset USDC --spender 0xSpender --amount 1000000 --from-address 0xYourEOA --results-only
+defi transfer plan --chain taiko --asset USDC --amount 1000000 --from-address 0xYourEOA --recipient 0xRecipient --results-only
 defi swap status --action-id <action_id> --results-only
 defi actions list --results-only
 defi actions estimate --action-id <action_id> --results-only
 ```
 
-`yield opportunities --providers` and `yield history --providers` accept provider names from `defi providers list` (for example `aave,morpho,kamino`).
+`yield opportunities --providers`, `yield positions --providers`, and `yield history --providers` accept provider names from `defi providers list` (for example `aave,morpho,kamino`).
 
 Bridge quote examples:
 
@@ -164,7 +167,7 @@ defi swap run \
   --results-only
 ```
 
-`swap quote` (on-chain quote providers) and execution `plan`/`run` commands support optional `--rpc-url` overrides (`swap`, `bridge`, `approvals`, `lend`, `rewards`).
+`swap quote` (on-chain quote providers) and execution `plan`/`run` commands support optional `--rpc-url` overrides (`swap`, `bridge`, `approvals`, `transfer`, `lend`, `yield`, `rewards`).
 For bridge flows, `--rpc-url` applies to the source-chain execution RPC.
 
 Execution command surface:
@@ -172,7 +175,9 @@ Execution command surface:
 - `swap plan|run|submit|status`
 - `bridge plan|run|submit|status` (provider: `across|lifi`)
 - `approvals plan|run|submit|status`
+- `transfer plan|run|submit|status`
 - `lend supply|withdraw|borrow|repay plan|run|submit|status` (provider: `aave|morpho`)
+- `yield deposit|withdraw plan|run|submit|status` (provider: `aave|morpho`)
 - `rewards claim|compound plan|run|submit|status` (provider: `aave`)
 - `actions list|show|estimate`
 
@@ -276,17 +281,20 @@ providers:
 
 ## Cache Policy
 
-- Command TTLs are fixed in code (`chains/protocols/chains assets`: `5m`, `lend markets`: `60s`, `lend rates`: `30s`, `lend positions`: `30s`, `yield opportunities`: `60s`, `yield history`: `5m`, `bridge/swap quotes`: `15s`).
+- Command TTLs are fixed in code (`chains/protocols/chains assets`: `5m`, `lend markets`: `60s`, `lend rates`: `30s`, `lend positions`: `30s`, `yield opportunities`: `60s`, `yield positions`: `30s`, `yield history`: `5m`, `bridge/swap quotes`: `15s`).
 - Cache entries are served directly only while fresh (`age <= ttl`).
 - After TTL expiry, the CLI fetches provider data immediately.
 - `cache.max_stale` / `--max-stale` is only a temporary provider-failure fallback window (currently `unavailable` / `rate_limited`).
 - If fallback is disabled (`--no-stale` or `--max-stale 0s`) or stale data exceeds the budget, the CLI exits with code `14`.
 - Metadata commands (`version`, `schema`, `providers list`) bypass cache initialization.
-- Execution commands (`swap|bridge|approvals|lend|rewards ... plan|run|submit|status`, `actions list|show|estimate`) bypass cache reads/writes.
+- Execution commands (`swap|bridge|approvals|transfer|lend|yield|rewards ... plan|run|submit|status`, `actions list|show|estimate`) bypass cache reads/writes.
 
 ## Caveats
 
 - Morpho can surface extreme APY values on very small markets. Prefer `--min-tvl-usd` when ranking yield.
+- `yield` and `lend` represent distinct user intents: use `yield` for passive deposit/withdraw flows and `lend` for market loan lifecycle (`supply|withdraw|borrow|repay`).
+- Morpho execution surfaces are intentionally split: `yield deposit|withdraw` target Morpho vaults (`--vault-address`), while `lend ...` targets Morpho Blue markets (`--market-id`).
+- Aave `yield deposit|withdraw` routes to the same reserve mechanics as Aave lend supply/withdraw with yield-intent command semantics.
 - `yield opportunities` returns objective metrics and composition data: `apy_total`, `tvl_usd`, `liquidity_usd`, and full `backing_assets` (subjective `risk_*`/`score` fields were removed).
 - `liquidity_usd` is provider-sourced available liquidity and is intentionally distinct from `tvl_usd` (total supplied/managed value).
 - `actions estimate` reports source-chain EVM step gas/fee projections from planned calldata (`eth_estimateGas` + EIP-1559); it does not add destination settlement gas unless that transaction is an explicit action step.
@@ -310,13 +318,16 @@ providers:
 - `lend positions --type all` returns disjoint rows by intent: `supply` (non-collateralized supplied balance), `collateral` (posted collateral), and `borrow` (debt).
 - Swap execution currently supports TaikoSwap only.
 - Bridge execution currently supports Across and LiFi.
+- Transfer execution supports native ERC-20 `transfer(...)` actions on EVM chains.
 - Lend execution supports Aave and Morpho (`--market-id` required for Morpho).
+- Yield execution supports Aave and Morpho (`--vault-address` required for Morpho).
 - Rewards execution currently supports Aave only.
 - Aave execution resolves pool addresses automatically on Ethereum, Optimism, Polygon, Base, Arbitrum, and Avalanche; use `--pool-address` / `--pool-address-provider` on unsupported chains.
 - LiFi bridge execution now waits for destination settlement status before marking the bridge step complete; adjust `--step-timeout` for slower routes.
 - Across bridge execution now waits for destination settlement status before marking the bridge step complete; adjust `--step-timeout` for slower routes.
 - LiFi bridge quote/plan/run support `--from-amount-for-gas` (source token base units reserved for destination native gas top-up).
 - Execution pre-sign checks enforce bounded ERC-20 approvals (`approve <= planned input amount`) by default; use `--allow-max-approval` when a route requires larger approvals.
+- Transfer execution pre-sign checks validate ERC-20 `transfer(to,amount)` calldata, recipient, amount, and token target invariants before signing.
 - Swap execution validates `--from-address` and `--recipient` as EVM hex addresses before planning transactions.
 - Bridge execution pre-sign checks validate settlement provider metadata and known settlement endpoint URLs for Across/LiFi; use `--unsafe-provider-tx` to bypass these guardrails.
 - All `run` / `submit` execution commands will broadcast signed transactions.

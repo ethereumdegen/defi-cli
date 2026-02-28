@@ -43,9 +43,12 @@ func (c *Client) Info() model.ProviderInfo {
 			"lend.rates",
 			"lend.positions",
 			"yield.opportunities",
+			"yield.positions",
 			"yield.history",
 			"lend.plan",
 			"lend.execute",
+			"yield.plan",
+			"yield.execute",
 			"rewards.plan",
 			"rewards.execute",
 		},
@@ -520,8 +523,8 @@ func (c *Client) YieldOpportunities(ctx context.Context, req providers.YieldRequ
 					Symbol:   strings.TrimSpace(r.UnderlyingToken.Symbol),
 					SharePct: 100,
 				}},
-				SourceURL:            "https://app.aave.com",
-				FetchedAt:            c.now().UTC().Format(time.RFC3339),
+				SourceURL: "https://app.aave.com",
+				FetchedAt: c.now().UTC().Format(time.RFC3339),
 			})
 		}
 	}
@@ -534,6 +537,54 @@ func (c *Client) YieldOpportunities(ctx context.Context, req providers.YieldRequ
 		req.Limit = len(out)
 	}
 	return out[:req.Limit], nil
+}
+
+func (c *Client) YieldPositions(ctx context.Context, req providers.YieldPositionsRequest) ([]model.YieldPosition, error) {
+	lendRows, err := c.LendPositions(ctx, providers.LendPositionsRequest{
+		Chain:        req.Chain,
+		Account:      req.Account,
+		Asset:        req.Asset,
+		PositionType: providers.LendPositionTypeAll,
+		Limit:        req.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]model.YieldPosition, 0, len(lendRows))
+	for _, row := range lendRows {
+		switch row.PositionType {
+		case string(providers.LendPositionTypeSupply), string(providers.LendPositionTypeCollateral):
+		default:
+			continue
+		}
+		opportunityID := ""
+		if strings.TrimSpace(row.ProviderNativeID) != "" {
+			opportunityID = hashOpportunity("aave", row.ChainID, row.ProviderNativeID, row.AssetID)
+		}
+		out = append(out, model.YieldPosition{
+			Protocol:             "aave",
+			Provider:             "aave",
+			ChainID:              row.ChainID,
+			AccountAddress:       row.AccountAddress,
+			PositionType:         "deposit",
+			OpportunityID:        opportunityID,
+			AssetID:              row.AssetID,
+			ProviderNativeID:     row.ProviderNativeID,
+			ProviderNativeIDKind: row.ProviderNativeIDKind,
+			Amount:               row.Amount,
+			AmountUSD:            row.AmountUSD,
+			APYTotal:             row.APY,
+			SourceURL:            row.SourceURL,
+			FetchedAt:            row.FetchedAt,
+		})
+	}
+
+	sortYieldPositions(out)
+	if req.Limit > 0 && len(out) > req.Limit {
+		out = out[:req.Limit]
+	}
+	return out, nil
 }
 
 func (c *Client) YieldHistory(ctx context.Context, req providers.YieldHistoryRequest) ([]model.YieldHistorySeries, error) {
@@ -895,6 +946,21 @@ func sortLendPositions(items []model.LendPosition) {
 		}
 		if items[i].PositionType != items[j].PositionType {
 			return items[i].PositionType < items[j].PositionType
+		}
+		if items[i].AssetID != items[j].AssetID {
+			return items[i].AssetID < items[j].AssetID
+		}
+		return items[i].ProviderNativeID < items[j].ProviderNativeID
+	})
+}
+
+func sortYieldPositions(items []model.YieldPosition) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].AmountUSD != items[j].AmountUSD {
+			return items[i].AmountUSD > items[j].AmountUSD
+		}
+		if items[i].APYTotal != items[j].APYTotal {
+			return items[i].APYTotal > items[j].APYTotal
 		}
 		if items[i].AssetID != items[j].AssetID {
 			return items[i].AssetID < items[j].AssetID

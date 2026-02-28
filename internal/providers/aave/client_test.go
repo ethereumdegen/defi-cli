@@ -221,6 +221,25 @@ func TestLendPositionsTypeSplit(t *testing.T) {
 	if len(collateralOnly) != 1 || collateralOnly[0].PositionType != string(providers.LendPositionTypeCollateral) {
 		t.Fatalf("expected collateral-only row, got %+v", collateralOnly)
 	}
+
+	yieldRows, err := client.YieldPositions(context.Background(), providers.YieldPositionsRequest{
+		Chain:   chain,
+		Account: account,
+	})
+	if err != nil {
+		t.Fatalf("YieldPositions failed: %v", err)
+	}
+	if len(yieldRows) != 2 {
+		t.Fatalf("expected two yield rows (supply + collateral), got %+v", yieldRows)
+	}
+	for _, row := range yieldRows {
+		if row.PositionType != "deposit" {
+			t.Fatalf("expected deposit position type, got %+v", row)
+		}
+		if row.ProviderNativeIDKind != model.NativeIDKindCompositeMarketAsset {
+			t.Fatalf("expected composite_market_asset native id kind, got %+v", row)
+		}
+	}
 }
 
 func TestYieldHistoryAPY(t *testing.T) {

@@ -20,7 +20,9 @@ Execution is integrated inside existing domain commands (for example `swap`, `br
 |---|---|---|---|
 | Swap | `swap plan|run|submit|status` | `--provider` required | `taikoswap` execution today |
 | Bridge | `bridge plan|run|submit|status` | `--provider` required | `across`, `lifi` execution |
+| Transfer | `transfer plan|run|submit|status` | no provider selector | native ERC-20 wallet transfer execution |
 | Lend | `lend (supply|withdraw|borrow|repay) plan|run|submit|status` | `--provider` required | `aave`, `morpho` execution (`morpho` requires `--market-id`) |
+| Yield | `yield (deposit|withdraw) plan|run|submit|status` | `--provider` required | `aave`, `morpho` execution (`morpho` requires `--vault-address`) |
 | Rewards | `rewards (claim|compound) plan|run|submit|status` | `--provider` required | `aave` execution |
 | Approvals | `approvals plan|run|submit|status` | no provider selector | native ERC-20 approval execution |
 | Action inspection | `actions list|show|estimate` | optional `--status` / `--action-id` filters | persisted action inspection + gas/fee estimation |
@@ -37,8 +39,10 @@ Execution wiring lives in `internal/app/runner.go` and domain files:
 
 - `internal/app/bridge_execution_commands.go`
 - `internal/app/lend_execution_commands.go`
+- `internal/app/yield_execution_commands.go`
 - `internal/app/rewards_command.go`
 - `internal/app/approvals_command.go`
+- `internal/app/transfer_command.go`
 
 Design decision:
 
@@ -57,7 +61,7 @@ Command handlers route action construction through a shared registry:
 Registry responsibility:
 
 - Resolve provider-backed action builders for swap/bridge.
-- Resolve planner-backed action builders for lend/rewards/approvals.
+- Resolve planner-backed action builders for lend/yield/rewards/approvals/transfer.
 - Keep command-level orchestration (`plan|run|submit|status`) consistent across domains.
 
 Design decision:
@@ -75,7 +79,7 @@ Execution providers are opt-in capability interfaces in `internal/providers/type
 - `SwapExecutionProvider`
 - `BridgeExecutionProvider`
 
-Lend/rewards/approvals currently use internal planners in `internal/execution/planner` instead of provider interfaces.
+Lend/yield/rewards/approvals/transfer currently use internal planners in `internal/execution/planner` instead of provider interfaces.
 
 Design decision:
 
@@ -223,7 +227,7 @@ Core executor: `internal/execution/executor.go`.
 Per step execution flow:
 
 1. Validate RPC URL, target, and chain match.
-2. Apply lightweight pre-sign policy checks (approval bounds, TaikoSwap target/selector checks, bridge settlement metadata checks).
+2. Apply lightweight pre-sign policy checks (approval bounds, transfer calldata invariants, TaikoSwap target/selector checks, bridge settlement metadata checks).
 3. Optional simulation (`eth_call`) when `--simulate=true`.
 4. Gas estimation (`eth_estimateGas`) with configurable multiplier.
 5. EIP-1559 fee resolution (suggested or overridden by flags).

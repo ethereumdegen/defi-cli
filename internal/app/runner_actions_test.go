@@ -103,8 +103,14 @@ func TestShouldOpenActionStore(t *testing.T) {
 	if !shouldOpenActionStore("approvals submit") {
 		t.Fatal("expected approvals submit to require action store")
 	}
+	if !shouldOpenActionStore("transfer run") {
+		t.Fatal("expected transfer run to require action store")
+	}
 	if !shouldOpenActionStore("lend supply status") {
 		t.Fatal("expected lend supply status to require action store")
+	}
+	if !shouldOpenActionStore("yield deposit run") {
+		t.Fatal("expected yield deposit run to require action store")
 	}
 	if !shouldOpenActionStore("rewards claim run") {
 		t.Fatal("expected rewards claim run to require action store")
@@ -159,8 +165,14 @@ func TestShouldOpenCacheBypassesExecutionCommands(t *testing.T) {
 	if shouldOpenCache("approvals status") {
 		t.Fatal("did not expect approvals status to open cache")
 	}
+	if shouldOpenCache("transfer status") {
+		t.Fatal("did not expect transfer status to open cache")
+	}
 	if shouldOpenCache("lend borrow plan") {
 		t.Fatal("did not expect lend borrow plan to open cache")
+	}
+	if shouldOpenCache("yield withdraw submit") {
+		t.Fatal("did not expect yield withdraw submit to open cache")
 	}
 	if shouldOpenCache("rewards compound run") {
 		t.Fatal("did not expect rewards compound run to open cache")
@@ -184,9 +196,12 @@ func TestRunnerExecutionCommandsInSchema(t *testing.T) {
 		"bridge plan",
 		"bridge run",
 		"approvals plan",
+		"transfer run",
 		"approvals run",
 		"lend supply plan",
 		"lend repay submit",
+		"yield deposit plan",
+		"yield withdraw status",
 		"rewards claim plan",
 		"rewards compound status",
 	}
@@ -226,6 +241,22 @@ func TestRunnerSwapPlanRequiresFromAddress(t *testing.T) {
 	}
 }
 
+func TestRunnerTransferPlanRequiresRecipient(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	r := NewRunnerWithWriters(&stdout, &stderr)
+	code := r.Run([]string{
+		"transfer", "plan",
+		"--chain", "taiko",
+		"--asset", "USDC",
+		"--amount", "1000000",
+		"--from-address", "0x00000000000000000000000000000000000000aa",
+	})
+	if code != 2 {
+		t.Fatalf("expected usage exit code 2, got %d stderr=%s", code, stderr.String())
+	}
+}
+
 func TestRunnerMorphoLendPlanRequiresMarketID(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -243,6 +274,26 @@ func TestRunnerMorphoLendPlanRequiresMarketID(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--market-id") {
 		t.Fatalf("expected market-id guidance in error output, got: %s", stderr.String())
+	}
+}
+
+func TestRunnerMorphoYieldDepositPlanRequiresVaultAddress(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	r := NewRunnerWithWriters(&stdout, &stderr)
+	code := r.Run([]string{
+		"yield", "deposit", "plan",
+		"--provider", "morpho",
+		"--chain", "1",
+		"--asset", "USDC",
+		"--amount", "1000000",
+		"--from-address", "0x00000000000000000000000000000000000000aa",
+	})
+	if code != 2 {
+		t.Fatalf("expected usage exit code 2, got %d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--vault-address") {
+		t.Fatalf("expected vault-address guidance in error output, got: %s", stderr.String())
 	}
 }
 

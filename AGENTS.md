@@ -22,6 +22,7 @@ go vet ./...
 ./defi lend markets --provider aave --chain 1 --asset USDC --results-only
 ./defi lend positions --provider aave --chain 1 --address 0x000000000000000000000000000000000000dEaD --type all --limit 3 --results-only
 ./defi yield opportunities --chain 1 --asset USDC --providers aave,morpho --limit 5 --results-only
+./defi yield positions --chain 1 --address 0x000000000000000000000000000000000000dEaD --providers aave,morpho --limit 5 --results-only
 ```
 
 ## Folder structure
@@ -66,15 +67,16 @@ README.md                         # user-facing usage + caveats
 
 - Error output always returns a full envelope, even with `--results-only` or `--select`.
 - Config precedence is `flags > env > config file > defaults`.
-- `yield --providers` expects provider names (`defillama,aave,morpho`), not protocol categories.
+- `yield --providers` expects provider names (`aave,morpho,kamino`), not protocol categories.
 - Lending routes by `--provider` use direct protocol adapters (`aave`, `morpho`, `kamino`).
 - `lend positions` currently supports `--provider aave|morpho`; `kamino` does not expose positions yet.
+- `yield positions` currently supports `aave|morpho`; `kamino` does not expose positions yet.
 - `lend positions --type all` intentionally returns non-overlapping intents (`supply`, `borrow`, `collateral`) for automation-friendly filtering.
 - Most commands do not require provider API keys.
 - Key-gated routes: `swap quote --provider 1inch` (`DEFI_1INCH_API_KEY`), `swap quote --provider uniswap` (`DEFI_UNISWAP_API_KEY`), `chains assets`, and `bridge list` / `bridge details` via DefiLlama (`DEFI_DEFILLAMA_API_KEY`).
 - Multi-provider command paths require explicit selector choice via `--provider`; no implicit defaults.
 - TaikoSwap quote/planning does not require an API key; execution uses local signer inputs (`--private-key` override, `DEFI_PRIVATE_KEY{,_FILE}`, or keystore envs) and also auto-discovers `~/.config/defi/key.hex` (or `$XDG_CONFIG_HOME/defi/key.hex`) when present.
-- `swap quote` (on-chain quote providers) and execution `plan`/`run` commands support optional `--rpc-url` overrides (`swap`, `bridge`, `approvals`, `lend`, `rewards`); `submit`/`status` use stored action step RPC URLs.
+- `swap quote` (on-chain quote providers) and execution `plan`/`run` commands support optional `--rpc-url` overrides (`swap`, `bridge`, `approvals`, `transfer`, `lend`, `yield`, `rewards`); `submit`/`status` use stored action step RPC URLs.
 - Swap execution planning validates sender/recipient inputs as EVM hex addresses before building calldata.
 - Metadata ownership is split by intent:
   - `internal/registry`: canonical execution endpoints/contracts/ABIs and default chain RPC map (used when no `--rpc-url` is provided).
@@ -84,12 +86,14 @@ README.md                         # user-facing usage + caveats
   - `swap plan|run|submit|status`
   - `bridge plan|run|submit|status` (Across, LiFi)
   - `approvals plan|run|submit|status`
+  - `transfer plan|run|submit|status`
   - `lend supply|withdraw|borrow|repay plan|run|submit|status` (Aave, Morpho)
+  - `yield deposit|withdraw plan|run|submit|status` (Aave, Morpho)
   - `rewards claim|compound plan|run|submit|status` (Aave)
   - `actions list|show|estimate`
 - Execution builder architecture is intentionally split:
   - `swap`/`bridge` action construction is provider capability based (`BuildSwapAction` / `BuildBridgeAction`) because route payloads are provider-specific.
-  - `lend`/`rewards`/`approvals` action construction uses internal planners for deterministic contract-call composition.
+  - `lend`/`yield`/`rewards`/`approvals`/`transfer` action construction uses internal planners for deterministic contract-call composition.
 - All execution `run` / `submit` commands can broadcast transactions.
 - Execution pre-sign checks enforce bounded ERC-20 approvals by default; `--allow-max-approval` opts into larger approvals when required.
 - Bridge execution pre-sign checks validate provider settlement metadata/endpoints by default; `--unsafe-provider-tx` bypasses these guardrails.
@@ -98,6 +102,7 @@ README.md                         # user-facing usage + caveats
 - Rewards `--assets` expects comma-separated on-chain addresses used by Aave incentives contracts.
 - Aave execution has default pool-address-provider coverage for chain IDs `1`, `10`, `137`, `8453`, `42161`, and `43114`; override with `--pool-address` / `--pool-address-provider` otherwise.
 - Morpho lend execution requires `--market-id` (Morpho market unique key bytes32).
+- Morpho yield execution requires `--vault-address` (Morpho vault contract address).
 - Key requirements are command + provider specific; `providers list` is metadata only and should remain callable without provider keys.
 - Prefer env vars for provider keys in docs/examples; keep config file usage optional and focused on non-secret defaults.
 - `--chain` supports CAIP-2, numeric chain IDs, and aliases; aliases include `mantle`, `megaeth`/`mega eth`/`mega-eth`, `ink`, `scroll`, `berachain`, `gnosis`/`xdai`, `linea`, `sonic`, `blast`, `fraxtal`, `world-chain`, `celo`, `taiko`/`taiko alethia`, `taiko hoodi`/`hoodi`, `zksync`, `hyperevm`/`hyper evm`/`hyper-evm`, `monad`, and `citrea`.
@@ -110,7 +115,7 @@ README.md                         # user-facing usage + caveats
 - Morpho can emit extreme APYs in tiny markets; use `--min-tvl-usd` in ranking/filters.
 - Fresh cache hits (`age <= ttl`) skip provider calls; once TTL expires, the CLI re-fetches providers and only serves stale data within `max_stale` on temporary provider failures.
 - Metadata commands (`version`, `schema`, `providers list`) bypass cache initialization.
-- Execution commands (`swap|bridge|approvals|lend|rewards ... plan|run|submit|status`, `actions list|show|estimate`) bypass cache initialization.
+- Execution commands (`swap|bridge|approvals|transfer|lend|yield|rewards ... plan|run|submit|status`, `actions list|show|estimate`) bypass cache initialization.
 - For `lend`/`yield`, unresolved symbols are treated as symbol filters; on chains without bootstrap token entries, prefer token address or CAIP-19 for deterministic matching.
 - Amounts used for swaps/bridges are base units; keep both base and decimal forms consistent.
 - Release artifacts are built on `v*` tags via `.github/workflows/release.yml` and `.goreleaser.yml`.

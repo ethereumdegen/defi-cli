@@ -25,6 +25,7 @@ const (
 
 const (
 	StepTypeApproval StepType = "approval"
+	StepTypeTransfer StepType = "transfer"
 	StepTypeSwap     StepType = "swap"
 	StepTypeBridge   StepType = "bridge_send"
 	StepTypeLend     StepType = "lend_call"

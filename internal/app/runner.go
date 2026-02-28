@@ -243,6 +243,7 @@ func (s *runtimeState) newRootCommand() *cobra.Command {
 	cmd.AddCommand(s.newBridgeCommand())
 	cmd.AddCommand(s.newSwapCommand())
 	cmd.AddCommand(s.newApprovalsCommand())
+	cmd.AddCommand(s.newTransferCommand())
 	cmd.AddCommand(s.newActionsCommand())
 	cmd.AddCommand(s.newYieldCommand())
 	cmd.AddCommand(newVersionCommand())
@@ -1315,7 +1316,7 @@ func (s *runtimeState) newActionsCommand() *cobra.Command {
 }
 
 func (s *runtimeState) newYieldCommand() *cobra.Command {
-	root := &cobra.Command{Use: "yield", Short: "Yield opportunity commands"}
+	root := &cobra.Command{Use: "yield", Short: "Yield opportunities, positions, history, and execution"}
 
 	var opportunitiesChainArg, opportunitiesAssetArg, opportunitiesProvidersArg, opportunitiesSortArg string
 	var opportunitiesLimit int
@@ -1412,6 +1413,115 @@ func (s *runtimeState) newYieldCommand() *cobra.Command {
 	_ = opportunitiesCmd.MarkFlagRequired("chain")
 	_ = opportunitiesCmd.MarkFlagRequired("asset")
 	root.AddCommand(opportunitiesCmd)
+
+	var positionsChainArg, positionsAddressArg, positionsAssetArg, positionsProvidersArg string
+	var positionsLimit int
+	var positionsRPCURL string
+	positionsCmd := &cobra.Command{
+		Use:   "positions",
+		Short: "List yield positions for an account address",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			chain, err := id.ParseChain(positionsChainArg)
+			if err != nil {
+				return err
+			}
+			account := strings.TrimSpace(positionsAddressArg)
+			if account == "" {
+				return clierr.New(clierr.CodeUsage, "--address is required")
+			}
+			if chain.IsEVM() && !common.IsHexAddress(account) {
+				return clierr.New(clierr.CodeUsage, "--address must be a valid EVM hex address")
+			}
+
+			asset, err := parseOptionalChainAsset(chain, positionsAssetArg)
+			if err != nil {
+				return err
+			}
+			providerFilter := splitCSV(positionsProvidersArg)
+
+			cacheAccount := account
+			if chain.IsEVM() {
+				cacheAccount = strings.ToLower(account)
+			}
+			req := map[string]any{
+				"chain":     chain.CAIP2,
+				"address":   cacheAccount,
+				"asset":     chainAssetFilterCacheValue(asset, positionsAssetArg),
+				"providers": providerFilter,
+				"limit":     positionsLimit,
+				"rpc_url":   strings.TrimSpace(positionsRPCURL),
+			}
+			key := cacheKey(trimRootPath(cmd.CommandPath()), req)
+			return s.runCachedCommand(trimRootPath(cmd.CommandPath()), key, 30*time.Second, func(ctx context.Context) (any, []model.ProviderStatus, []string, bool, error) {
+				selectedProviders, err := s.selectYieldProviders(providerFilter, chain)
+				if err != nil {
+					return nil, nil, nil, false, err
+				}
+
+				statuses := make([]model.ProviderStatus, 0, len(selectedProviders))
+				warnings := []string{}
+				combined := make([]model.YieldPosition, 0)
+				partial := false
+				var firstErr error
+
+				for _, providerName := range selectedProviders {
+					provider := s.yieldProviders[providerName]
+					positionProvider, ok := provider.(providers.YieldPositionsProvider)
+					providerStart := time.Now()
+					if !ok {
+						providerErr := clierr.New(clierr.CodeUnsupported, fmt.Sprintf("yield provider %s does not support positions", providerName))
+						statuses = append(statuses, model.ProviderStatus{Name: provider.Info().Name, Status: statusFromErr(providerErr), LatencyMS: time.Since(providerStart).Milliseconds()})
+						warnings = append(warnings, fmt.Sprintf("provider %s does not support yield positions", provider.Info().Name))
+						partial = true
+						if firstErr == nil {
+							firstErr = providerErr
+						}
+						continue
+					}
+
+					items, providerErr := positionProvider.YieldPositions(ctx, providers.YieldPositionsRequest{
+						Chain:   chain,
+						Account: account,
+						Asset:   asset,
+						Limit:   positionsLimit,
+						RPCURL:  strings.TrimSpace(positionsRPCURL),
+					})
+					statuses = append(statuses, model.ProviderStatus{Name: provider.Info().Name, Status: statusFromErr(providerErr), LatencyMS: time.Since(providerStart).Milliseconds()})
+					if providerErr != nil {
+						warnings = append(warnings, fmt.Sprintf("provider %s failed: %v", provider.Info().Name, providerErr))
+						partial = true
+						if firstErr == nil {
+							firstErr = providerErr
+						}
+						continue
+					}
+					combined = append(combined, items...)
+				}
+
+				if len(combined) == 0 {
+					if firstErr != nil {
+						return nil, statuses, warnings, partial, firstErr
+					}
+					return nil, statuses, warnings, partial, clierr.New(clierr.CodeUnavailable, "no yield positions returned by selected providers")
+				}
+
+				sortYieldPositions(combined)
+				if positionsLimit > 0 && len(combined) > positionsLimit {
+					combined = combined[:positionsLimit]
+				}
+				return combined, statuses, warnings, partial, nil
+			})
+		},
+	}
+	positionsCmd.Flags().StringVar(&positionsChainArg, "chain", "", "Chain identifier")
+	positionsCmd.Flags().StringVar(&positionsAddressArg, "address", "", "Position owner address")
+	positionsCmd.Flags().StringVar(&positionsAssetArg, "asset", "", "Optional asset filter (symbol/address/CAIP-19)")
+	positionsCmd.Flags().StringVar(&positionsProvidersArg, "providers", "", "Filter by provider names (aave,morpho,kamino)")
+	positionsCmd.Flags().IntVar(&positionsLimit, "limit", 20, "Maximum positions to return")
+	positionsCmd.Flags().StringVar(&positionsRPCURL, "rpc-url", "", "Optional RPC URL override used by providers that need on-chain valuation")
+	_ = positionsCmd.MarkFlagRequired("chain")
+	_ = positionsCmd.MarkFlagRequired("address")
+	root.AddCommand(positionsCmd)
 
 	var historyChainArg, historyAssetArg, historyProvidersArg, historyMetricsArg string
 	var historyIntervalArg, historyWindowArg, historyFromArg, historyToArg, historyOpportunityIDsArg string
@@ -1578,6 +1688,7 @@ func (s *runtimeState) newYieldCommand() *cobra.Command {
 	_ = historyCmd.MarkFlagRequired("asset")
 	root.AddCommand(historyCmd)
 
+	s.addYieldExecutionSubcommands(root)
 	return root
 }
 
@@ -1918,6 +2029,24 @@ func sortYieldHistorySeries(items []model.YieldHistorySeries) {
 			return a.Interval < b.Interval
 		}
 		return strings.Compare(a.StartTime, b.StartTime) < 0
+	})
+}
+
+func sortYieldPositions(items []model.YieldPosition) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].AmountUSD != items[j].AmountUSD {
+			return items[i].AmountUSD > items[j].AmountUSD
+		}
+		if items[i].APYTotal != items[j].APYTotal {
+			return items[i].APYTotal > items[j].APYTotal
+		}
+		if items[i].Provider != items[j].Provider {
+			return items[i].Provider < items[j].Provider
+		}
+		if items[i].AssetID != items[j].AssetID {
+			return items[i].AssetID < items[j].AssetID
+		}
+		return items[i].ProviderNativeID < items[j].ProviderNativeID
 	})
 }
 
@@ -2292,7 +2421,7 @@ func isExecutionCommandPath(path string) bool {
 		return false
 	}
 	switch parts[0] {
-	case "swap", "bridge", "approvals", "lend", "rewards":
+	case "swap", "bridge", "approvals", "transfer", "lend", "rewards", "yield":
 		last := parts[len(parts)-1]
 		return last == "plan" || last == "run" || last == "submit" || last == "status"
 	default:

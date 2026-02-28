@@ -100,6 +100,29 @@ type LendRequest struct {
 	PoolAddressProvider string
 }
 
+type YieldVerb string
+
+const (
+	YieldVerbDeposit  YieldVerb = "deposit"
+	YieldVerbWithdraw YieldVerb = "withdraw"
+)
+
+type YieldRequest struct {
+	Provider            string
+	Verb                YieldVerb
+	Chain               id.Chain
+	Asset               id.Asset
+	VaultAddress        string
+	AmountBaseUnits     string
+	Sender              string
+	Recipient           string
+	OnBehalfOf          string
+	Simulate            bool
+	RPCURL              string
+	PoolAddress         string
+	PoolAddressProvider string
+}
+
 func (r *Registry) BuildLendAction(ctx context.Context, req LendRequest) (execution.Action, error) {
 	providerName := normalizeLendingProvider(req.Provider)
 	if providerName == "" {
@@ -136,6 +159,69 @@ func (r *Registry) BuildLendAction(ctx context.Context, req LendRequest) (execut
 		})
 	default:
 		return execution.Action{}, clierr.New(clierr.CodeUnsupported, "lend execution currently supports provider=aave|morpho")
+	}
+}
+
+func (r *Registry) BuildYieldAction(ctx context.Context, req YieldRequest) (execution.Action, error) {
+	providerName := normalizeLendingProvider(req.Provider)
+	if providerName == "" {
+		return execution.Action{}, clierr.New(clierr.CodeUsage, "--provider is required")
+	}
+	yieldVerb := strings.ToLower(strings.TrimSpace(string(req.Verb)))
+	switch providerName {
+	case "aave":
+		var lendVerb planner.AaveLendVerb
+		switch yieldVerb {
+		case string(YieldVerbDeposit):
+			lendVerb = planner.AaveVerbSupply
+		case string(YieldVerbWithdraw):
+			lendVerb = planner.AaveVerbWithdraw
+		default:
+			return execution.Action{}, clierr.New(clierr.CodeUsage, "yield action must be deposit or withdraw")
+		}
+		action, err := planner.BuildAaveLendAction(ctx, planner.AaveLendRequest{
+			Verb:                  lendVerb,
+			Chain:                 req.Chain,
+			Asset:                 req.Asset,
+			AmountBaseUnits:       req.AmountBaseUnits,
+			Sender:                req.Sender,
+			Recipient:             req.Recipient,
+			OnBehalfOf:            req.OnBehalfOf,
+			Simulate:              req.Simulate,
+			RPCURL:                req.RPCURL,
+			PoolAddress:           req.PoolAddress,
+			PoolAddressesProvider: req.PoolAddressProvider,
+		})
+		if err != nil {
+			return execution.Action{}, err
+		}
+		action.IntentType = "yield_" + yieldVerb
+		if action.Metadata == nil {
+			action.Metadata = map[string]any{}
+		}
+		action.Metadata["yield_action"] = yieldVerb
+		action.Metadata["yield_product"] = "aave_reserve"
+		return action, nil
+	case "morpho":
+		switch yieldVerb {
+		case string(YieldVerbDeposit), string(YieldVerbWithdraw):
+		default:
+			return execution.Action{}, clierr.New(clierr.CodeUsage, "yield action must be deposit or withdraw")
+		}
+		return planner.BuildMorphoVaultYieldAction(ctx, planner.MorphoVaultYieldRequest{
+			Verb:            planner.MorphoVaultYieldVerb(yieldVerb),
+			Chain:           req.Chain,
+			Asset:           req.Asset,
+			VaultAddress:    req.VaultAddress,
+			AmountBaseUnits: req.AmountBaseUnits,
+			Sender:          req.Sender,
+			Recipient:       req.Recipient,
+			OnBehalfOf:      req.OnBehalfOf,
+			Simulate:        req.Simulate,
+			RPCURL:          req.RPCURL,
+		})
+	default:
+		return execution.Action{}, clierr.New(clierr.CodeUnsupported, "yield execution currently supports provider=aave|morpho")
 	}
 }
 
@@ -217,6 +303,28 @@ func (r *Registry) BuildRewardsCompoundAction(ctx context.Context, req RewardsCo
 
 func (r *Registry) BuildApprovalAction(req planner.ApprovalRequest) (execution.Action, error) {
 	return planner.BuildApprovalAction(req)
+}
+
+type TransferRequest struct {
+	Chain           id.Chain
+	Asset           id.Asset
+	AmountBaseUnits string
+	Sender          string
+	Recipient       string
+	Simulate        bool
+	RPCURL          string
+}
+
+func (r *Registry) BuildTransferAction(req TransferRequest) (execution.Action, error) {
+	return planner.BuildTransferAction(planner.TransferRequest{
+		Chain:           req.Chain,
+		Asset:           req.Asset,
+		AmountBaseUnits: req.AmountBaseUnits,
+		Sender:          req.Sender,
+		Recipient:       req.Recipient,
+		Simulate:        req.Simulate,
+		RPCURL:          req.RPCURL,
+	})
 }
 
 func normalizeLendingProvider(v string) string {

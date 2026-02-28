@@ -250,6 +250,90 @@ func TestYieldHistoryCommandFailsWhenProviderHasNoHistorySupport(t *testing.T) {
 	}
 }
 
+func TestYieldPositionsCommandCallsProvider(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	fakeProvider := &fakeYieldHistoryProvider{
+		name: "morpho",
+		positions: []model.YieldPosition{
+			{
+				Protocol:             "morpho",
+				Provider:             "morpho",
+				ChainID:              "eip155:1",
+				AccountAddress:       "0x000000000000000000000000000000000000dEaD",
+				PositionType:         "deposit",
+				OpportunityID:        "opp-1",
+				AssetID:              "eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+				ProviderNativeID:     "0x1111111111111111111111111111111111111111",
+				ProviderNativeIDKind: model.NativeIDKindVaultAddress,
+				Amount: model.AmountInfo{
+					AmountBaseUnits: "1000000",
+					AmountDecimal:   "1",
+					Decimals:        6,
+				},
+				AmountUSD: 1,
+				APYTotal:  4.2,
+				SourceURL: "https://app.morpho.org",
+				FetchedAt: "2026-02-26T20:00:00Z",
+			},
+		},
+	}
+	state := &runtimeState{
+		runner: &Runner{
+			stdout: &stdout,
+			stderr: &stderr,
+			now:    time.Now,
+		},
+		settings: config.Settings{
+			OutputMode:   "json",
+			ResultsOnly:  true,
+			Timeout:      2 * time.Second,
+			CacheEnabled: false,
+		},
+		yieldProviders: map[string]providers.YieldProvider{
+			"morpho": fakeProvider,
+		},
+	}
+
+	root := &cobra.Command{Use: "defi"}
+	root.SilenceUsage = true
+	root.SilenceErrors = true
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.AddCommand(state.newYieldCommand())
+	root.SetArgs([]string{
+		"yield", "positions",
+		"--chain", "1",
+		"--address", "0x000000000000000000000000000000000000dEaD",
+		"--providers", "morpho",
+		"--limit", "5",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("yield positions command failed: %v stderr=%s", err, stderr.String())
+	}
+
+	if fakeProvider.positionCalls != 1 {
+		t.Fatalf("expected one positions call, got %d", fakeProvider.positionCalls)
+	}
+	if fakeProvider.lastPositionReq.Chain.CAIP2 != "eip155:1" {
+		t.Fatalf("unexpected chain in request: %+v", fakeProvider.lastPositionReq)
+	}
+	if fakeProvider.lastPositionReq.Account != "0x000000000000000000000000000000000000dEaD" {
+		t.Fatalf("unexpected account in request: %+v", fakeProvider.lastPositionReq)
+	}
+
+	var out []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("failed parsing output json: %v output=%s", err, stdout.String())
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected one yield position row, got %+v", out)
+	}
+	if out[0]["provider"] != "morpho" {
+		t.Fatalf("expected morpho provider row, got %+v", out[0])
+	}
+}
+
 func TestParseChainAssetFilterAllowsUnknownSymbol(t *testing.T) {
 	chain, err := id.ParseChain("ethereum")
 	if err != nil {
@@ -1453,14 +1537,17 @@ func (f *fakeLendingProviderNoPositions) LendRates(context.Context, string, id.C
 }
 
 type fakeYieldHistoryProvider struct {
-	name           string
-	opportunities  []model.YieldOpportunity
-	series         []model.YieldHistorySeries
-	err            error
-	calls          int
-	historyCalls   int
-	lastYieldReq   providers.YieldRequest
-	lastHistoryReq providers.YieldHistoryRequest
+	name            string
+	opportunities   []model.YieldOpportunity
+	positions       []model.YieldPosition
+	series          []model.YieldHistorySeries
+	err             error
+	calls           int
+	positionCalls   int
+	historyCalls    int
+	lastYieldReq    providers.YieldRequest
+	lastPositionReq providers.YieldPositionsRequest
+	lastHistoryReq  providers.YieldHistoryRequest
 }
 
 func (f *fakeYieldHistoryProvider) Info() model.ProviderInfo {
@@ -1468,7 +1555,7 @@ func (f *fakeYieldHistoryProvider) Info() model.ProviderInfo {
 		Name:         f.name,
 		Type:         "yield",
 		RequiresKey:  false,
-		Capabilities: []string{"yield.opportunities", "yield.history"},
+		Capabilities: []string{"yield.opportunities", "yield.positions", "yield.history"},
 	}
 }
 
@@ -1488,6 +1575,15 @@ func (f *fakeYieldHistoryProvider) YieldHistory(_ context.Context, req providers
 		return nil, f.err
 	}
 	return f.series, nil
+}
+
+func (f *fakeYieldHistoryProvider) YieldPositions(_ context.Context, req providers.YieldPositionsRequest) ([]model.YieldPosition, error) {
+	f.positionCalls++
+	f.lastPositionReq = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.positions, nil
 }
 
 type fakeYieldProviderNoHistory struct {

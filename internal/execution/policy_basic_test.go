@@ -51,6 +51,97 @@ func TestValidateApprovalPolicyAllowsOverride(t *testing.T) {
 	}
 }
 
+func TestValidateTransferPolicyMatchesAction(t *testing.T) {
+	data, err := policyERC20ABI.Pack("transfer", common.HexToAddress("0x00000000000000000000000000000000000000ab"), big.NewInt(100))
+	if err != nil {
+		t.Fatalf("pack transfer calldata: %v", err)
+	}
+	action := &Action{
+		InputAmount: "100",
+		ToAddress:   "0x00000000000000000000000000000000000000ab",
+		Metadata: map[string]any{
+			"asset_address": "0x00000000000000000000000000000000000000cd",
+		},
+	}
+	step := &ActionStep{
+		Type:   StepTypeTransfer,
+		Target: "0x00000000000000000000000000000000000000cd",
+	}
+
+	if err := validateStepPolicy(action, step, 1, data, ExecuteOptions{}); err != nil {
+		t.Fatalf("expected transfer policy to pass, got err=%v", err)
+	}
+}
+
+func TestValidateTransferPolicyRejectsRecipientMismatch(t *testing.T) {
+	data, err := policyERC20ABI.Pack("transfer", common.HexToAddress("0x00000000000000000000000000000000000000ab"), big.NewInt(100))
+	if err != nil {
+		t.Fatalf("pack transfer calldata: %v", err)
+	}
+	action := &Action{
+		InputAmount: "100",
+		ToAddress:   "0x00000000000000000000000000000000000000ff",
+	}
+	step := &ActionStep{
+		Type:   StepTypeTransfer,
+		Target: "0x00000000000000000000000000000000000000cd",
+	}
+
+	err = validateStepPolicy(action, step, 1, data, ExecuteOptions{})
+	if err == nil {
+		t.Fatal("expected transfer recipient mismatch to fail")
+	}
+	if !strings.Contains(err.Error(), "to_address") {
+		t.Fatalf("expected to_address mismatch hint, got err=%v", err)
+	}
+}
+
+func TestValidateTransferPolicyRejectsAmountMismatch(t *testing.T) {
+	data, err := policyERC20ABI.Pack("transfer", common.HexToAddress("0x00000000000000000000000000000000000000ab"), big.NewInt(101))
+	if err != nil {
+		t.Fatalf("pack transfer calldata: %v", err)
+	}
+	action := &Action{
+		InputAmount: "100",
+		ToAddress:   "0x00000000000000000000000000000000000000ab",
+	}
+	step := &ActionStep{
+		Type:   StepTypeTransfer,
+		Target: "0x00000000000000000000000000000000000000cd",
+	}
+
+	err = validateStepPolicy(action, step, 1, data, ExecuteOptions{})
+	if err == nil {
+		t.Fatal("expected transfer amount mismatch to fail")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected amount mismatch message, got err=%v", err)
+	}
+}
+
+func TestValidateTransferPolicyRequiresAssetAddressMetadata(t *testing.T) {
+	data, err := policyERC20ABI.Pack("transfer", common.HexToAddress("0x00000000000000000000000000000000000000ab"), big.NewInt(100))
+	if err != nil {
+		t.Fatalf("pack transfer calldata: %v", err)
+	}
+	action := &Action{
+		InputAmount: "100",
+		ToAddress:   "0x00000000000000000000000000000000000000ab",
+	}
+	step := &ActionStep{
+		Type:   StepTypeTransfer,
+		Target: "0x00000000000000000000000000000000000000cd",
+	}
+
+	err = validateStepPolicy(action, step, 1, data, ExecuteOptions{})
+	if err == nil {
+		t.Fatal("expected missing asset metadata to fail")
+	}
+	if !strings.Contains(err.Error(), "asset_address") {
+		t.Fatalf("expected asset_address validation message, got err=%v", err)
+	}
+}
+
 func TestValidateSwapPolicyTaikoRouter(t *testing.T) {
 	action := &Action{Provider: "taikoswap"}
 	step := &ActionStep{
