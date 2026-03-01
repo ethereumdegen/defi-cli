@@ -2,6 +2,8 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -12,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	clierr "github.com/ggonzalez94/defi-cli/internal/errors"
 )
 
@@ -59,6 +62,29 @@ type ActionGasEstimateChainTotal struct {
 	WorstCaseFeeWei string `json:"worst_case_fee_wei"`
 }
 
+type preparedEstimateStep struct {
+	Step     ActionStep
+	Msg      ethereum.CallMsg
+	ChainKey string
+	Client   *ethclient.Client
+}
+
+type estimateSimulateBlockResult struct {
+	Calls []estimateSimulateCallResult `json:"calls"`
+}
+
+type estimateSimulateCallResult struct {
+	GasUsed *hexutil.Uint64           `json:"gasUsed"`
+	Status  *hexutil.Uint64           `json:"status"`
+	Error   *estimateSimulateRPCError `json:"error,omitempty"`
+}
+
+type estimateSimulateRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    string `json:"data,omitempty"`
+}
+
 func DefaultEstimateOptions() EstimateOptions {
 	return EstimateOptions{
 		GasMultiplier: 1.2,
@@ -101,10 +127,16 @@ func EstimateActionGas(ctx context.Context, action Action, opts EstimateOptions)
 		return ActionGasEstimate{}, clierr.New(clierr.CodeUsage, "no action steps matched the requested --step-ids filter")
 	}
 
-	byChainLikely := map[string]*big.Int{}
-	byChainWorst := map[string]*big.Int{}
-	estimatedSteps := make([]ActionGasEstimateStep, 0, len(selected))
+	rpcClients := make(map[string]*ethclient.Client)
+	defer func() {
+		for _, client := range rpcClients {
+			if client != nil {
+				client.Close()
+			}
+		}
+	}()
 
+	prepared := make([]preparedEstimateStep, 0, len(selected))
 	for _, step := range selected {
 		if strings.TrimSpace(step.RPCURL) == "" {
 			return ActionGasEstimate{}, clierr.New(clierr.CodeUsage, fmt.Sprintf("step %s is missing rpc_url", step.StepID))
@@ -113,57 +145,79 @@ func EstimateActionGas(ctx context.Context, action Action, opts EstimateOptions)
 			return ActionGasEstimate{}, clierr.New(clierr.CodeUsage, fmt.Sprintf("step %s has invalid target address", step.StepID))
 		}
 
-		client, err := ethclient.DialContext(ctx, strings.TrimSpace(step.RPCURL))
-		if err != nil {
-			return ActionGasEstimate{}, clierr.Wrap(clierr.CodeUnavailable, "connect rpc", err)
+		client := rpcClients[strings.TrimSpace(step.RPCURL)]
+		if client == nil {
+			var err error
+			client, err = ethclient.DialContext(ctx, strings.TrimSpace(step.RPCURL))
+			if err != nil {
+				return ActionGasEstimate{}, clierr.Wrap(clierr.CodeUnavailable, "connect rpc", err)
+			}
+			rpcClients[strings.TrimSpace(step.RPCURL)] = client
 		}
 
 		msg, err := actionStepCallMsg(step, fromAddress)
 		if err != nil {
-			client.Close()
 			return ActionGasEstimate{}, err
 		}
 
 		chainID, err := client.ChainID(ctx)
 		if err != nil {
-			client.Close()
 			return ActionGasEstimate{}, clierr.Wrap(clierr.CodeUnavailable, "read chain id", err)
 		}
 		chainKey := fmt.Sprintf("eip155:%d", chainID.Int64())
 		if strings.TrimSpace(step.ChainID) != "" {
 			if !strings.EqualFold(strings.TrimSpace(step.ChainID), chainKey) {
-				client.Close()
 				return ActionGasEstimate{}, clierr.New(clierr.CodeActionPlan, fmt.Sprintf("step chain mismatch: expected %s, got %s", chainKey, step.ChainID))
 			}
 		}
+		prepared = append(prepared, preparedEstimateStep{
+			Step:     step,
+			Msg:      msg,
+			ChainKey: chainKey,
+			Client:   client,
+		})
+	}
 
-		rawGas, err := estimateGasWithBlockTag(ctx, client, msg, blockTag)
-		if err != nil {
-			client.Close()
-			return ActionGasEstimate{}, wrapEVMExecutionError(clierr.CodeActionSim, "estimate gas", err)
+	rawGasFromSimulation, err := estimateGasSequentialWhereSupported(ctx, prepared, blockTag)
+	if err != nil {
+		return ActionGasEstimate{}, wrapEVMExecutionError(clierr.CodeActionSim, "simulate action (eth_simulateV1)", err)
+	}
+
+	byChainLikely := map[string]*big.Int{}
+	byChainWorst := map[string]*big.Int{}
+	estimatedSteps := make([]ActionGasEstimateStep, 0, len(prepared))
+
+	for _, preparedStep := range prepared {
+		step := preparedStep.Step
+		client := preparedStep.Client
+		chainKey := preparedStep.ChainKey
+		msg := preparedStep.Msg
+
+		rawGas := rawGasFromSimulation[strings.ToLower(strings.TrimSpace(step.StepID))]
+		if rawGas == 0 {
+			var err error
+			rawGas, err = estimateGasWithBlockTag(ctx, client, msg, blockTag)
+			if err != nil {
+				return ActionGasEstimate{}, wrapEVMExecutionError(clierr.CodeActionSim, "estimate gas", err)
+			}
 		}
 		gasLimit := uint64(float64(rawGas) * opts.GasMultiplier)
 		if gasLimit == 0 {
-			client.Close()
 			return ActionGasEstimate{}, clierr.New(clierr.CodeActionSim, "estimate gas returned zero")
 		}
 
 		tipCap, err := resolveTipCap(ctx, client, opts.MaxPriorityFeeGwei)
 		if err != nil {
-			client.Close()
 			return ActionGasEstimate{}, err
 		}
 		baseFee, err := baseFeeAtBlockTag(ctx, client, blockTag)
 		if err != nil {
-			client.Close()
 			return ActionGasEstimate{}, err
 		}
 		feeCap, err := resolveFeeCap(baseFee, tipCap, opts.MaxFeeGwei)
 		if err != nil {
-			client.Close()
 			return ActionGasEstimate{}, err
 		}
-		client.Close()
 
 		effectiveGasPrice := new(big.Int).Add(new(big.Int).Set(baseFee), tipCap)
 		if effectiveGasPrice.Cmp(feeCap) > 0 {
@@ -220,6 +274,190 @@ func EstimateActionGas(ctx context.Context, action Action, opts EstimateOptions)
 		Steps:         estimatedSteps,
 		TotalsByChain: totals,
 	}, nil
+}
+
+func estimateGasSequentialWhereSupported(ctx context.Context, prepared []preparedEstimateStep, blockTag EstimateBlockTag) (map[string]uint64, error) {
+	if len(prepared) < 2 {
+		return map[string]uint64{}, nil
+	}
+	byRPC := make(map[string][]preparedEstimateStep)
+	order := make([]string, 0, len(prepared))
+	for _, step := range prepared {
+		key := strings.TrimSpace(step.Step.RPCURL)
+		if _, ok := byRPC[key]; !ok {
+			order = append(order, key)
+		}
+		byRPC[key] = append(byRPC[key], step)
+	}
+
+	out := make(map[string]uint64)
+	for _, rpcURL := range order {
+		group := byRPC[rpcURL]
+		if len(group) < 2 {
+			continue
+		}
+		groupEstimates, supported, err := estimateGasSequentialGroup(ctx, group, blockTag)
+		if err != nil {
+			return nil, err
+		}
+		if !supported {
+			continue
+		}
+		for stepID, gas := range groupEstimates {
+			out[strings.ToLower(strings.TrimSpace(stepID))] = gas
+		}
+	}
+	return out, nil
+}
+
+func estimateGasSequentialGroup(ctx context.Context, group []preparedEstimateStep, blockTag EstimateBlockTag) (map[string]uint64, bool, error) {
+	if len(group) < 2 {
+		return map[string]uint64{}, false, nil
+	}
+	if group[0].Client == nil {
+		return nil, false, fmt.Errorf("missing rpc client for sequential simulation")
+	}
+
+	calls := make([]any, 0, len(group))
+	for _, step := range group {
+		calls = append(calls, callArgFromCallMsg(step.Msg))
+	}
+
+	opts := map[string]any{
+		"blockStateCalls": []any{
+			map[string]any{
+				"calls": calls,
+			},
+		},
+	}
+
+	var raw json.RawMessage
+	if err := group[0].Client.Client().CallContext(ctx, &raw, "eth_simulateV1", opts, blockNumberOrHashForEstimateTag(blockTag)); err != nil {
+		if isSimulateMethodUnsupported(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	blocks, err := decodeSimulateBlocks(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(blocks) == 0 {
+		return nil, false, fmt.Errorf("eth_simulateV1 returned no blocks")
+	}
+	if len(blocks[0].Calls) != len(group) {
+		return nil, false, fmt.Errorf("eth_simulateV1 returned %d calls for %d requested steps", len(blocks[0].Calls), len(group))
+	}
+
+	out := make(map[string]uint64, len(group))
+	for i, call := range blocks[0].Calls {
+		step := group[i].Step
+		if call.Error != nil {
+			return nil, false, fmt.Errorf("simulate step %s failed: %s", step.StepID, simulateCallErrorText(call.Error))
+		}
+		if call.Status != nil && uint64(*call.Status) == 0 {
+			return nil, false, fmt.Errorf("simulate step %s reverted", step.StepID)
+		}
+		if call.GasUsed == nil {
+			return nil, false, fmt.Errorf("simulate step %s did not return gasUsed", step.StepID)
+		}
+		gas := uint64(*call.GasUsed)
+		if gas == 0 {
+			return nil, false, fmt.Errorf("simulate step %s returned zero gas", step.StepID)
+		}
+		out[step.StepID] = gas
+	}
+	return out, true, nil
+}
+
+func callArgFromCallMsg(msg ethereum.CallMsg) map[string]any {
+	arg := map[string]any{
+		"from": msg.From,
+	}
+	if msg.To != nil {
+		arg["to"] = msg.To
+	}
+	if len(msg.Data) > 0 {
+		arg["input"] = hexutil.Bytes(msg.Data)
+	}
+	if msg.Value != nil {
+		arg["value"] = (*hexutil.Big)(msg.Value)
+	}
+	if msg.Gas != 0 {
+		arg["gas"] = hexutil.Uint64(msg.Gas)
+	}
+	if msg.GasPrice != nil {
+		arg["gasPrice"] = (*hexutil.Big)(msg.GasPrice)
+	}
+	if msg.GasFeeCap != nil {
+		arg["maxFeePerGas"] = (*hexutil.Big)(msg.GasFeeCap)
+	}
+	if msg.GasTipCap != nil {
+		arg["maxPriorityFeePerGas"] = (*hexutil.Big)(msg.GasTipCap)
+	}
+	if msg.AccessList != nil {
+		arg["accessList"] = msg.AccessList
+	}
+	return arg
+}
+
+func blockNumberOrHashForEstimateTag(blockTag EstimateBlockTag) rpc.BlockNumberOrHash {
+	switch blockTag {
+	case EstimateBlockTagLatest:
+		return rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	default:
+		return rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
+	}
+}
+
+func decodeSimulateBlocks(raw json.RawMessage) ([]estimateSimulateBlockResult, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return nil, fmt.Errorf("empty eth_simulateV1 response")
+	}
+	var blocks []estimateSimulateBlockResult
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		return blocks, nil
+	}
+	var block estimateSimulateBlockResult
+	if err := json.Unmarshal(raw, &block); err == nil {
+		return []estimateSimulateBlockResult{block}, nil
+	}
+	return nil, fmt.Errorf("decode eth_simulateV1 response")
+}
+
+func isSimulateMethodUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rpcErr rpc.Error
+	if errors.As(err, &rpcErr) {
+		switch rpcErr.ErrorCode() {
+		case -32601, -32602:
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "eth_simulatev1") && strings.Contains(msg, "not found") {
+		return true
+	}
+	if strings.Contains(msg, "method not found") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "unknown method") {
+		return true
+	}
+	return false
+}
+
+func simulateCallErrorText(err *estimateSimulateRPCError) string {
+	if err == nil {
+		return "unknown simulation error"
+	}
+	if strings.TrimSpace(err.Message) != "" {
+		return strings.TrimSpace(err.Message)
+	}
+	if strings.TrimSpace(err.Data) != "" {
+		return strings.TrimSpace(err.Data)
+	}
+	return "unknown simulation error"
 }
 
 func actionStepCallMsg(step ActionStep, from common.Address) (ethereum.CallMsg, error) {

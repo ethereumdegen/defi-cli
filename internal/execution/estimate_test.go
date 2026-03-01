@@ -194,6 +194,156 @@ func TestEstimateActionGasFilterNoMatches(t *testing.T) {
 	}
 }
 
+func TestEstimateActionGasUsesSequentialSimulationWhenAvailable(t *testing.T) {
+	var estimateCalls int
+	rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var req estimateRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		switch req.Method {
+		case "eth_chainId":
+			writeEstimateRPCResult(t, w, req.ID, "0x1")
+		case "eth_simulateV1":
+			writeEstimateRPCResult(t, w, req.ID, []map[string]any{
+				{
+					"calls": []map[string]any{
+						{"gasUsed": "0x5208", "status": "0x1"},
+						{"gasUsed": "0x1d4c0", "status": "0x1"},
+					},
+				},
+			})
+		case "eth_estimateGas":
+			estimateCalls++
+			writeEstimateRPCError(w, req.ID, -32000, "legacy estimate should not be called")
+		case "eth_maxPriorityFeePerGas":
+			writeEstimateRPCResult(t, w, req.ID, "0x77359400")
+		case "eth_getBlockByNumber":
+			writeEstimateRPCResult(t, w, req.ID, map[string]any{
+				"baseFeePerGas": "0x3b9aca00",
+			})
+		default:
+			writeEstimateRPCError(w, req.ID, -32601, fmt.Sprintf("method not supported in test: %s", req.Method))
+		}
+	}))
+	defer rpc.Close()
+
+	action := Action{
+		ActionID:    "act_seq_sim",
+		FromAddress: "0x00000000000000000000000000000000000000aa",
+		Steps: []ActionStep{
+			{
+				StepID:  "approve-step",
+				Type:    StepTypeApproval,
+				Status:  StepStatusPending,
+				ChainID: "eip155:1",
+				RPCURL:  rpc.URL,
+				Target:  "0x00000000000000000000000000000000000000bb",
+				Data:    "0x",
+				Value:   "0",
+			},
+			{
+				StepID:  "deposit-step",
+				Type:    StepTypeLend,
+				Status:  StepStatusPending,
+				ChainID: "eip155:1",
+				RPCURL:  rpc.URL,
+				Target:  "0x00000000000000000000000000000000000000cc",
+				Data:    "0x",
+				Value:   "0",
+			},
+		},
+	}
+
+	estimate, err := EstimateActionGas(context.Background(), action, DefaultEstimateOptions())
+	if err != nil {
+		t.Fatalf("EstimateActionGas failed: %v", err)
+	}
+	if len(estimate.Steps) != 2 {
+		t.Fatalf("expected two estimated steps, got %d", len(estimate.Steps))
+	}
+	if got := estimate.Steps[0].GasEstimateRaw; got != "21000" {
+		t.Fatalf("unexpected first-step gas estimate: %s", got)
+	}
+	if got := estimate.Steps[1].GasEstimateRaw; got != "120000" {
+		t.Fatalf("unexpected second-step gas estimate: %s", got)
+	}
+	if estimateCalls != 0 {
+		t.Fatalf("expected no legacy eth_estimateGas calls, got %d", estimateCalls)
+	}
+}
+
+func TestEstimateActionGasFallsBackWhenSequentialSimulationUnavailable(t *testing.T) {
+	rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var req estimateRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		switch req.Method {
+		case "eth_chainId":
+			writeEstimateRPCResult(t, w, req.ID, "0x1")
+		case "eth_simulateV1":
+			writeEstimateRPCError(w, req.ID, -32601, "the method eth_simulateV1 does not exist/is not available")
+		case "eth_estimateGas":
+			writeEstimateRPCResult(t, w, req.ID, "0x5208")
+		case "eth_maxPriorityFeePerGas":
+			writeEstimateRPCResult(t, w, req.ID, "0x77359400")
+		case "eth_getBlockByNumber":
+			writeEstimateRPCResult(t, w, req.ID, map[string]any{
+				"baseFeePerGas": "0x3b9aca00",
+			})
+		default:
+			writeEstimateRPCError(w, req.ID, -32601, fmt.Sprintf("method not supported in test: %s", req.Method))
+		}
+	}))
+	defer rpc.Close()
+
+	action := Action{
+		ActionID:    "act_seq_fallback",
+		FromAddress: "0x00000000000000000000000000000000000000aa",
+		Steps: []ActionStep{
+			{
+				StepID:  "approve-step",
+				Type:    StepTypeApproval,
+				Status:  StepStatusPending,
+				ChainID: "eip155:1",
+				RPCURL:  rpc.URL,
+				Target:  "0x00000000000000000000000000000000000000bb",
+				Data:    "0x",
+				Value:   "0",
+			},
+			{
+				StepID:  "deposit-step",
+				Type:    StepTypeLend,
+				Status:  StepStatusPending,
+				ChainID: "eip155:1",
+				RPCURL:  rpc.URL,
+				Target:  "0x00000000000000000000000000000000000000cc",
+				Data:    "0x",
+				Value:   "0",
+			},
+		},
+	}
+
+	estimate, err := EstimateActionGas(context.Background(), action, DefaultEstimateOptions())
+	if err != nil {
+		t.Fatalf("EstimateActionGas failed: %v", err)
+	}
+	if len(estimate.Steps) != 2 {
+		t.Fatalf("expected two estimated steps, got %d", len(estimate.Steps))
+	}
+	if got := estimate.Steps[0].GasEstimateRaw; got != "21000" {
+		t.Fatalf("unexpected first-step gas estimate: %s", got)
+	}
+	if got := estimate.Steps[1].GasEstimateRaw; got != "21000" {
+		t.Fatalf("unexpected second-step gas estimate: %s", got)
+	}
+}
+
 func newEstimateRPCServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

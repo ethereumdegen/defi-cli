@@ -76,6 +76,7 @@ Format:
 ### Fixed
 - Improved bridge execution error messaging to clearly distinguish quote-only providers from execution-capable providers.
 - Fixed execution read-after-write consistency for sequential on-chain steps by reusing RPC clients per action, gating on confirmed block visibility, and waiting for ERC-20 allowance state visibility after successful approval receipts.
+- Fixed `actions estimate` for multi-step same-chain actions (`approve` then contract call) by using sequential `eth_simulateV1` estimation when supported and falling back to per-step `eth_estimateGas` when unavailable.
 
 ### Docs
 - Documented bridge/lend/rewards/approvals execution flows, signer env inputs, command behavior, and exit codes in `README.md`.
