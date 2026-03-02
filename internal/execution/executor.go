@@ -220,6 +220,7 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 	msg := ethereum.CallMsg{From: txSigner.Address(), To: &target, Value: value, Data: data}
 	if txHash, ok := normalizeStepTxHash(step.TxHash); ok {
 		step.Status = StepStatusSubmitted
+		step.Error = ""
 		if err := safePersist(persist); err != nil {
 			return nil, err
 		}
@@ -231,6 +232,7 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 			return nil, wrapEVMExecutionError(clierr.CodeActionSim, "simulate step (eth_call)", err)
 		}
 		step.Status = StepStatusSimulated
+		step.Error = ""
 		if err := safePersist(persist); err != nil {
 			return nil, err
 		}
@@ -287,6 +289,7 @@ func executeStep(ctx context.Context, client *ethclient.Client, txSigner signer.
 	}
 	step.Status = StepStatusSubmitted
 	step.TxHash = signed.Hash().Hex()
+	step.Error = ""
 	if err := safePersist(persist); err != nil {
 		return nil, err
 	}
@@ -309,6 +312,7 @@ func waitForStepConfirmation(ctx context.Context, client *ethclient.Client, step
 					return nil, err
 				}
 				step.Status = StepStatusConfirmed
+				step.Error = ""
 				if err := safePersist(persist); err != nil {
 					return nil, err
 				}

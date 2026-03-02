@@ -9,8 +9,9 @@ import (
 
 func TestEstimateExecutionTimeout_DefaultStepTimeout(t *testing.T) {
 	got := estimateExecutionTimeout(nil, execution.ExecuteOptions{})
-	if got != 2*time.Minute {
-		t.Fatalf("expected default timeout 2m, got %s", got)
+	want := 2*time.Minute + executionStepRPCOverhead
+	if got != want {
+		t.Fatalf("expected default timeout %s, got %s", want, got)
 	}
 }
 
@@ -24,7 +25,8 @@ func TestEstimateExecutionTimeout_CountsRemainingStages(t *testing.T) {
 	}
 	got := estimateExecutionTimeout(action, execution.ExecuteOptions{StepTimeout: 45 * time.Second})
 	// approval=1 stage, bridge=2 stages, confirmed swap=0 stages
-	want := 3 * 45 * time.Second
+	// plus per-step RPC overhead for approval + bridge send steps.
+	want := 3*45*time.Second + 2*executionStepRPCOverhead
 	if got != want {
 		t.Fatalf("expected timeout %s, got %s", want, got)
 	}

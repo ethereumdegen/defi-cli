@@ -1197,6 +1197,9 @@ func (s *runtimeState) newSwapCommand() *cobra.Command {
 			if err != nil {
 				return clierr.Wrap(clierr.CodeUsage, "load action", err)
 			}
+			if action.IntentType != "swap" {
+				return clierr.New(clierr.CodeUsage, "action is not a swap intent")
+			}
 			return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, nil, cacheMetaBypass(), nil, false)
 		},
 	}

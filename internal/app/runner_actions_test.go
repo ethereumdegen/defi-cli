@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/ggonzalez94/defi-cli/internal/execution"
 	execsigner "github.com/ggonzalez94/defi-cli/internal/execution/signer"
 )
 
@@ -346,6 +348,35 @@ func TestRunnerExecutionStatusBypassesCacheOpen(t *testing.T) {
 	code := r.Run([]string{"approvals", "status", "--action-id", "act_missing"})
 	if code != 2 {
 		t.Fatalf("expected usage exit code 2, got %d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRunnerSwapStatusRejectsNonSwapIntent(t *testing.T) {
+	actionStorePath := filepath.Join(t.TempDir(), "actions.db")
+	actionLockPath := filepath.Join(t.TempDir(), "actions.lock")
+	t.Setenv("DEFI_ACTIONS_PATH", actionStorePath)
+	t.Setenv("DEFI_ACTIONS_LOCK_PATH", actionLockPath)
+
+	store, err := execution.OpenStore(actionStorePath, actionLockPath)
+	if err != nil {
+		t.Fatalf("open action store: %v", err)
+	}
+	defer store.Close()
+
+	action := execution.NewAction("act_test_intent", "bridge", "eip155:1", execution.Constraints{Simulate: true})
+	if err := store.Save(action); err != nil {
+		t.Fatalf("save action: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	r := NewRunnerWithWriters(&stdout, &stderr)
+	code := r.Run([]string{"swap", "status", "--action-id", action.ActionID})
+	if code != 2 {
+		t.Fatalf("expected usage exit code 2, got %d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "action is not a swap intent") {
+		t.Fatalf("expected swap intent validation error, got stderr=%s", stderr.String())
 	}
 }
 
