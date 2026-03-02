@@ -119,7 +119,7 @@ README.md                         # user-facing usage + caveats
 - For `lend`/`yield`, unresolved symbols are treated as symbol filters; on chains without bootstrap token entries, prefer token address or CAIP-19 for deterministic matching.
 - Amounts used for swaps/bridges are base units; keep both base and decimal forms consistent.
 - Release artifacts are built on `v*` tags via `.github/workflows/release.yml` and `.goreleaser.yml`.
-- Mintlify production docs should use the `docs-live` branch; the release workflow force-syncs `docs-live` to each `v*` tag.
+- Mintlify production docs should use the `docs-live` branch; the release workflow force-syncs `docs-live` only for stable release tags (non-prerelease).
 - `scripts/install.sh` installs the latest tagged release artifact into a writable user-space `PATH` directory by default (fallback `~/.local/bin`) and never uses sudo unless explicitly requested.
 - Docs site local checks (from `docs/`): `npx --yes mint@4.2.378 validate`, `npx --yes mint@4.2.378 broken-links`, and `npx --yes mint@4.2.378 a11y`.
 

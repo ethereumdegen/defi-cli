@@ -95,6 +95,7 @@ Format:
 - Updated yield docs/reference examples to remove risk-based flags and document `backing_assets` plus objective `tvl_usd`/`liquidity_usd` semantics.
 - Updated README + Mintlify bridge/swap docs to remove stale implicit-provider defaults, require explicit `--provider` in examples, and document Across max-approval behavior with `--allow-max-approval`.
 - Clarified bridge settlement timeout guidance across docs, including how `--step-timeout` maps to execution wait stages and how `--timeout` applies to provider/planning requests.
+- Clarified release-channel behavior: prerelease tags are published as prereleases and no longer sync Mintlify `docs-live`; stable tags continue to drive production docs.
 
 ### Security
 - None yet.

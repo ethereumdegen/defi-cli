@@ -38,7 +38,7 @@ npx --yes mint@4.2.378 broken-links
 npx --yes mint@4.2.378 a11y
 ```
 
-Production docs deployment should target `docs-live` in Mintlify Git settings. The release workflow syncs `docs-live` to each `v*` tag so live docs align with released binaries.
+Production docs deployment should target `docs-live` in Mintlify Git settings. The release workflow syncs `docs-live` on stable release tags (non-prerelease) so live docs align with main-channel binaries.
 
 ## Install
 
