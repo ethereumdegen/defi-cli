@@ -210,6 +210,9 @@ func (c *Client) BuildBridgeAction(ctx context.Context, req providers.BridgeQuot
 	if strings.TrimSpace(resp.SwapTx.To) == "" || strings.TrimSpace(resp.SwapTx.Data) == "" {
 		return execution.Action{}, clierr.New(clierr.CodeUnavailable, "across execution response missing swap transaction payload")
 	}
+	if !common.IsHexAddress(strings.TrimSpace(resp.SwapTx.To)) {
+		return execution.Action{}, clierr.New(clierr.CodeActionPlan, "across swap transaction target is not a valid EVM address")
+	}
 	if resp.SwapTx.ChainID != 0 && resp.SwapTx.ChainID != req.FromChain.EVMChainID {
 		return execution.Action{}, clierr.New(clierr.CodeActionPlan, "across swap transaction chain does not match source chain")
 	}
@@ -237,6 +240,9 @@ func (c *Client) BuildBridgeAction(ctx context.Context, req providers.BridgeQuot
 	for i, approval := range resp.ApprovalTxns {
 		if strings.TrimSpace(approval.To) == "" || strings.TrimSpace(approval.Data) == "" {
 			continue
+		}
+		if !common.IsHexAddress(strings.TrimSpace(approval.To)) {
+			return execution.Action{}, clierr.New(clierr.CodeActionPlan, "across approval transaction target is not a valid EVM address")
 		}
 		if approval.ChainID != 0 && approval.ChainID != req.FromChain.EVMChainID {
 			continue

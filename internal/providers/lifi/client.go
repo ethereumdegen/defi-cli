@@ -237,6 +237,9 @@ func (c *Client) BuildBridgeAction(ctx context.Context, req providers.BridgeQuot
 	if strings.TrimSpace(resp.TransactionRequest.To) == "" || strings.TrimSpace(resp.TransactionRequest.Data) == "" {
 		return execution.Action{}, clierr.New(clierr.CodeUnavailable, "lifi quote missing executable transaction payload")
 	}
+	if !common.IsHexAddress(strings.TrimSpace(resp.TransactionRequest.To)) {
+		return execution.Action{}, clierr.New(clierr.CodeActionPlan, "lifi transaction target is not a valid EVM address")
+	}
 	if resp.TransactionRequest.ChainID != 0 && resp.TransactionRequest.ChainID != req.FromChain.EVMChainID {
 		return execution.Action{}, clierr.New(clierr.CodeActionPlan, "lifi transaction chain does not match source chain")
 	}

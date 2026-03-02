@@ -325,7 +325,7 @@ providers:
 - Aave execution resolves pool addresses automatically on Ethereum, Optimism, Polygon, Base, Arbitrum, and Avalanche; use `--pool-address` / `--pool-address-provider` on unsupported chains.
 - LiFi bridge execution now waits for destination settlement status before marking the bridge step complete; adjust `--step-timeout` for slower routes.
 - Across bridge execution now waits for destination settlement status before marking the bridge step complete; adjust `--step-timeout` for slower routes.
-- `--step-timeout` applies to each bridge wait stage (receipt and settlement polling); global `--timeout` still bounds the full command, so set both for longer routes.
+- `--step-timeout` applies to each bridge wait stage (receipt and settlement polling); execution wait budget is derived from `--step-timeout` and remaining action stages.
 - LiFi bridge quote/plan/run support `--from-amount-for-gas` (source token base units reserved for destination native gas top-up).
 - Execution pre-sign checks enforce bounded ERC-20 approvals (`approve <= planned input amount`) by default; use `--allow-max-approval` when a route requires larger approvals.
 - Transfer execution pre-sign checks validate ERC-20 `transfer(to,amount)` calldata, recipient, amount, and token target invariants before signing.

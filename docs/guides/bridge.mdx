@@ -54,4 +54,4 @@ defi bridge details --bridge layerzero --results-only
 - Across `/swap/approval` responses can include max-allowance `approve` calldata. `defi-cli` blocks approval amounts above planned input by default; use `--allow-max-approval` on `bridge run|submit` only when you explicitly accept that larger allowance.
 - Bridge `run|submit` marks bridge steps complete only after destination settlement is confirmed by provider status APIs (Across `/deposit/status`, LiFi `/status`).
 - `--step-timeout` applies to each bridge wait stage (receipt and settlement polling). Slow routes may need higher values (for example `--step-timeout 15m`).
-- Global `--timeout` also bounds the command. Set `--timeout` high enough for end-to-end execution (for example `--timeout 20m` when `--step-timeout 15m`).
+- Global `--timeout` controls provider/planning requests. Execution wait budget is derived from `--step-timeout` and remaining action stages.

@@ -104,6 +104,32 @@ func TestBuildAaveRewardsCompoundAction(t *testing.T) {
 	}
 }
 
+func TestBuildAaveRewardsCompoundActionRejectsRecipientMismatch(t *testing.T) {
+	rpc := newPlannerRPCServer(t, big.NewInt(0))
+	defer rpc.Close()
+
+	chain, err := id.ParseChain("ethereum")
+	if err != nil {
+		t.Fatalf("parse chain: %v", err)
+	}
+	sender := "0x00000000000000000000000000000000000000AA"
+	_, err = BuildAaveRewardsCompoundAction(context.Background(), AaveRewardsCompoundRequest{
+		Chain:             chain,
+		Sender:            sender,
+		Recipient:         "0x00000000000000000000000000000000000000BB",
+		Assets:            []string{"0x00000000000000000000000000000000000000D1"},
+		RewardToken:       "0x00000000000000000000000000000000000000D2",
+		AmountBaseUnits:   "1000",
+		Simulate:          true,
+		RPCURL:            rpc.URL,
+		ControllerAddress: "0x00000000000000000000000000000000000000D3",
+		PoolAddress:       "0x00000000000000000000000000000000000000D4",
+	})
+	if err == nil {
+		t.Fatal("expected recipient mismatch error")
+	}
+}
+
 func TestBuildAaveLendActionRequiresSender(t *testing.T) {
 	chain, _ := id.ParseChain("ethereum")
 	asset, _ := id.ParseAsset("USDC", chain)

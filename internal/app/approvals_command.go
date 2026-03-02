@@ -184,6 +184,9 @@ func (s *runtimeState) newApprovalsCommand() *cobra.Command {
 			if action.IntentType != "approve" {
 				return clierr.New(clierr.CodeUsage, "action is not an approval intent")
 			}
+			if action.Status == execution.ActionStatusCompleted {
+				return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, []string{"action already completed"}, cacheMetaBypass(), nil, false)
+			}
 			txSigner, err := newExecutionSigner(submitSigner, submitKeySource, submitPrivateKey)
 			if err != nil {
 				return err

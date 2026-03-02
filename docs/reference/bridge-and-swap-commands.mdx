@@ -98,7 +98,7 @@ Execution providers: `across|lifi`.
 
 - `bridge` steps are marked complete only after source-chain confirmation and destination settlement confirmation from provider status APIs.
 - `--step-timeout` applies to each bridge wait stage (receipt and settlement polling).
-- Global `--timeout` still bounds the whole command; set it high enough for slower bridge routes.
+- Global `--timeout` controls provider/planning requests; execution wait budget is derived from `--step-timeout` and remaining action stages.
 - `--allow-max-approval` lets execution continue when provider approval calldata exceeds planned input amount (needed for some Across routes).
 - `--unsafe-provider-tx` bypasses settlement metadata/endpoint guardrails for provider-generated bridge payloads.
 

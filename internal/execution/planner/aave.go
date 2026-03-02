@@ -271,10 +271,15 @@ func BuildAaveRewardsCompoundAction(ctx context.Context, req AaveRewardsCompound
 	if strings.EqualFold(strings.TrimSpace(req.AmountBaseUnits), "max") {
 		return execution.Action{}, clierr.New(clierr.CodeUsage, "compound requires an explicit --amount in base units (max is unsupported)")
 	}
+	senderInput := strings.TrimSpace(req.Sender)
+	recipientInput := strings.TrimSpace(req.Recipient)
+	if recipientInput != "" && !strings.EqualFold(recipientInput, senderInput) {
+		return execution.Action{}, clierr.New(clierr.CodeUsage, "compound requires --recipient to match --from-address")
+	}
 	claimAction, err := BuildAaveRewardsClaimAction(ctx, AaveRewardsClaimRequest{
 		Chain:                 req.Chain,
-		Sender:                req.Sender,
-		Recipient:             req.Recipient,
+		Sender:                senderInput,
+		Recipient:             senderInput,
 		Assets:                req.Assets,
 		RewardToken:           req.RewardToken,
 		AmountBaseUnits:       req.AmountBaseUnits,

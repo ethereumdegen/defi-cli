@@ -230,6 +230,51 @@ func TestBuildBridgeAction(t *testing.T) {
 	}
 }
 
+func TestBuildBridgeActionRejectsInvalidSwapTarget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/swap/approval":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"approvalTxns": [],
+				"swapTx": {
+					"chainId": 1,
+					"to": "not-an-address",
+					"data": "0xad5425c6",
+					"value": "0x0"
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := New(httpx.New(2*time.Second, 0))
+	c.baseURL = srv.URL
+	fromChain, _ := id.ParseChain("ethereum")
+	toChain, _ := id.ParseChain("base")
+	fromAsset, _ := id.ParseAsset("USDC", fromChain)
+	toAsset, _ := id.ParseAsset("USDC", toChain)
+
+	_, err := c.BuildBridgeAction(context.Background(), providers.BridgeQuoteRequest{
+		FromChain:       fromChain,
+		ToChain:         toChain,
+		FromAsset:       fromAsset,
+		ToAsset:         toAsset,
+		AmountBaseUnits: "1000000",
+		AmountDecimal:   "1",
+	}, providers.BridgeExecutionOptions{
+		Sender:      "0x00000000000000000000000000000000000000AA",
+		Recipient:   "0x00000000000000000000000000000000000000BB",
+		SlippageBps: 50,
+		Simulate:    true,
+	})
+	if err == nil {
+		t.Fatal("expected invalid swap target error")
+	}
+}
+
 func TestApproximateStableUSDExcludesEURS(t *testing.T) {
 	if isLikelyStableSymbol("EURS") {
 		t.Fatal("EURS should not be treated as USD-pegged")

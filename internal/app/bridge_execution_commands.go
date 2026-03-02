@@ -6,6 +6,7 @@ import (
 	"time"
 
 	clierr "github.com/ggonzalez94/defi-cli/internal/errors"
+	"github.com/ggonzalez94/defi-cli/internal/execution"
 	execsigner "github.com/ggonzalez94/defi-cli/internal/execution/signer"
 	"github.com/ggonzalez94/defi-cli/internal/id"
 	"github.com/ggonzalez94/defi-cli/internal/model"
@@ -245,6 +246,9 @@ func (s *runtimeState) addBridgeExecutionSubcommands(root *cobra.Command) {
 			}
 			if action.IntentType != "bridge" {
 				return clierr.New(clierr.CodeUsage, "action is not a bridge intent")
+			}
+			if action.Status == execution.ActionStatusCompleted {
+				return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, []string{"action already completed"}, cacheMetaBypass(), nil, false)
 			}
 			txSigner, err := newExecutionSigner(submitSigner, submitKeySource, submitPrivateKey)
 			if err != nil {

@@ -78,6 +78,10 @@ Format:
 - Improved bridge execution error messaging to clearly distinguish quote-only providers from execution-capable providers.
 - Fixed execution read-after-write consistency for sequential on-chain steps by reusing RPC clients per action, gating on confirmed block visibility, and waiting for ERC-20 allowance state visibility after successful approval receipts.
 - Fixed `actions estimate` for multi-step same-chain actions (`approve` then contract call) by using sequential `eth_simulateV1` estimation when supported and falling back to per-step `eth_estimateGas` when unavailable.
+- Fixed execution timeout budgeting so `run|submit` waits are derived from per-step execution stages instead of the short provider request timeout.
+- Fixed `approvals submit` and `bridge submit` to short-circuit completed actions before requesting signer inputs.
+- Fixed Across/LiFi bridge planning to reject provider transaction payloads with invalid target addresses.
+- Fixed Aave rewards compound planning to reject recipient/sender mismatches so claim/supply addresses stay aligned.
 
 ### Docs
 - Documented bridge/lend/rewards/approvals execution flows, signer env inputs, command behavior, and exit codes in `README.md`.
@@ -90,7 +94,7 @@ Format:
 - Documented `yield positions` and `yield deposit|withdraw` execution usage across README, AGENTS, and Mintlify command references.
 - Updated yield docs/reference examples to remove risk-based flags and document `backing_assets` plus objective `tvl_usd`/`liquidity_usd` semantics.
 - Updated README + Mintlify bridge/swap docs to remove stale implicit-provider defaults, require explicit `--provider` in examples, and document Across max-approval behavior with `--allow-max-approval`.
-- Clarified bridge settlement timeout guidance across docs, including how `--step-timeout` and global `--timeout` interact on slower routes.
+- Clarified bridge settlement timeout guidance across docs, including how `--step-timeout` maps to execution wait stages and how `--timeout` applies to provider/planning requests.
 
 ### Security
 - None yet.
