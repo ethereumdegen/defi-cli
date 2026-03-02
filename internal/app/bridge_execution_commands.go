@@ -309,6 +309,9 @@ func (s *runtimeState) addBridgeExecutionSubcommands(root *cobra.Command) {
 			if err != nil {
 				return clierr.Wrap(clierr.CodeUsage, "load action", err)
 			}
+			if action.IntentType != "bridge" {
+				return clierr.New(clierr.CodeUsage, "action is not a bridge intent")
+			}
 			return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, nil, cacheMetaBypass(), nil, false)
 		},
 	}

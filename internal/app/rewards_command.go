@@ -75,7 +75,14 @@ func (s *runtimeState) newRewardsClaimCommand() *cobra.Command {
 			defer cancel()
 			start := time.Now()
 			action, err := buildAction(ctx, plan)
-			statuses := []model.ProviderStatus{{Name: "aave", Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
+			providerName := normalizeLendingProvider(plan.provider)
+			if providerName == "" {
+				providerName = strings.TrimSpace(plan.provider)
+			}
+			if providerName == "" {
+				providerName = "unknown"
+			}
+			statuses := []model.ProviderStatus{{Name: providerName, Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
 			if err != nil {
 				s.captureCommandDiagnostics(nil, statuses, false)
 				return err
@@ -127,7 +134,14 @@ func (s *runtimeState) newRewardsClaimCommand() *cobra.Command {
 			defer cancel()
 			start := time.Now()
 			action, err := buildAction(ctx, runArgs)
-			statuses := []model.ProviderStatus{{Name: "aave", Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
+			providerName := normalizeLendingProvider(runArgs.provider)
+			if providerName == "" {
+				providerName = strings.TrimSpace(runArgs.provider)
+			}
+			if providerName == "" {
+				providerName = "unknown"
+			}
+			statuses := []model.ProviderStatus{{Name: providerName, Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
 			if err != nil {
 				s.captureCommandDiagnostics(nil, statuses, false)
 				return err
@@ -345,7 +359,14 @@ func (s *runtimeState) newRewardsCompoundCommand() *cobra.Command {
 			defer cancel()
 			start := time.Now()
 			action, err := buildAction(ctx, plan)
-			statuses := []model.ProviderStatus{{Name: "aave", Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
+			providerName := normalizeLendingProvider(plan.provider)
+			if providerName == "" {
+				providerName = strings.TrimSpace(plan.provider)
+			}
+			if providerName == "" {
+				providerName = "unknown"
+			}
+			statuses := []model.ProviderStatus{{Name: providerName, Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
 			if err != nil {
 				s.captureCommandDiagnostics(nil, statuses, false)
 				return err
@@ -400,7 +421,14 @@ func (s *runtimeState) newRewardsCompoundCommand() *cobra.Command {
 			defer cancel()
 			start := time.Now()
 			action, err := buildAction(ctx, runArgs)
-			statuses := []model.ProviderStatus{{Name: "aave", Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
+			providerName := normalizeLendingProvider(runArgs.provider)
+			if providerName == "" {
+				providerName = strings.TrimSpace(runArgs.provider)
+			}
+			if providerName == "" {
+				providerName = "unknown"
+			}
+			statuses := []model.ProviderStatus{{Name: providerName, Status: statusFromErr(err), LatencyMS: time.Since(start).Milliseconds()}}
 			if err != nil {
 				s.captureCommandDiagnostics(nil, statuses, false)
 				return err

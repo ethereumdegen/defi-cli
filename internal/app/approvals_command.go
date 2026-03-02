@@ -129,9 +129,11 @@ func (s *runtimeState) newApprovalsCommand() *cobra.Command {
 				runUnsafeProviderTx,
 			)
 			if err != nil {
+				s.captureCommandDiagnostics(nil, status, false)
 				return err
 			}
 			if err := s.executeActionWithTimeout(&action, txSigner, execOpts); err != nil {
+				s.captureCommandDiagnostics(nil, status, false)
 				return err
 			}
 			s.captureCommandDiagnostics(nil, status, false)
@@ -245,6 +247,9 @@ func (s *runtimeState) newApprovalsCommand() *cobra.Command {
 			action, err := s.actionStore.Get(actionID)
 			if err != nil {
 				return clierr.Wrap(clierr.CodeUsage, "load action", err)
+			}
+			if action.IntentType != "approve" {
+				return clierr.New(clierr.CodeUsage, "action is not an approval intent")
 			}
 			return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, nil, cacheMetaBypass(), nil, false)
 		},
