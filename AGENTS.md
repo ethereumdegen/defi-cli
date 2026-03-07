@@ -4,7 +4,7 @@ Short guide for agents working on `defi-cli`.
 
 ## Project intent
 
-`defi-cli` is an agent-first DeFi retrieval CLI. Core priorities are:
+`defi-cli` is an agent-first DeFi CLI for querying and acting on-chain. Core priorities are:
 
 - stable JSON contract (envelope + fields + deterministic ordering)
 - stable exit codes
@@ -34,7 +34,7 @@ cmd/
 internal/
   app/runner.go                   # command wiring, provider routing, cache flow
   providers/                      # external adapters
-    aave/ morpho/                 # direct GraphQL lending + yield
+    aave/ morpho/                 # lending + yield (read + execution)
     defillama/                    # market/yield normalization + fallback + bridge analytics
     across/ lifi/                 # bridge quotes + lifi execution planning
     oneinch/ uniswap/ taikoswap/  # swap quotes + uniswap-v3-compatible execution planning (taikoswap today)
@@ -132,7 +132,7 @@ README.md                         # user-facing usage + caveats
   2. register routes/info in `internal/app/runner.go`
   3. add `httptest`-based adapter tests
   4. update README caveats if data quality/semantics differ
-  5. document any command that requires an API key explicitely
+  5. document any command that requires an API key explicitly
 - Contract changes:
   1. treat as breaking unless explicitly intended
   2. update `internal/model` + `internal/out` tests first

@@ -1,6 +1,6 @@
 ---
-title: Bridge, Swap, and Transfer Commands
-description: Full reference for bridge/swap quote families plus ERC-20 transfer execution commands.
+title: Bridge, Swap, Transfer, and Approvals Commands
+description: Full reference for bridge/swap quote and execution, ERC-20 transfers, approvals, and action inspection.
 ---
 
 ## `bridge quote`
@@ -180,3 +180,23 @@ defi transfer status --action-id <action_id> --results-only
 - `--max-priority-fee-gwei string` optional
 
 Explicit flags override structured input values on `submit` as well.
+
+## `approvals plan|submit|status`
+
+```bash
+defi approvals plan --chain taiko --asset USDC --spender 0xSpender --amount 1000000 --from-address 0xYourEOA --results-only
+defi approvals submit --action-id <action_id> --results-only
+defi approvals status --action-id <action_id> --results-only
+```
+
+Creates and executes ERC-20 approval transactions for a given spender and amount. `plan` and `submit` accept `--input-json` / `--input-file`.
+
+## `actions list|show|estimate`
+
+```bash
+defi actions list --results-only
+defi actions show --action-id <action_id> --results-only
+defi actions estimate --action-id <action_id> --results-only
+```
+
+Inspect persisted actions. `actions estimate` computes per-step gas projections using `eth_estimateGas` and EIP-1559 fee resolution.

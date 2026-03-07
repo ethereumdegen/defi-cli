@@ -53,14 +53,21 @@ defi swap quote --provider fibrous --chain hyperevm --from-asset USDC --to-asset
 defi swap quote --provider jupiter --chain solana --from-asset USDC --to-asset SOL --amount 1000000 --results-only
 ```
 
-## 7. Use schema for machine integration
+## 7. Plan an execution (dry-run)
+
+```bash
+defi swap plan --provider taikoswap --chain taiko --from-asset USDC --to-asset WETH --amount 1000000 --from-address 0xYourEOA --results-only
+defi lend supply plan --provider aave --chain 1 --asset USDC --amount 1000000 --from-address 0xYourEOA --results-only
+```
+
+## 8. Use schema for machine integration
 
 ```bash
 defi schema --results-only
 defi schema "yield opportunities" --results-only
 ```
 
-## 8. Add reliability defaults
+## 9. Add reliability defaults
 
 ```bash
 defi yield opportunities --chain 1 --asset USDC --timeout 12s --retries 2 --max-stale 5m --results-only

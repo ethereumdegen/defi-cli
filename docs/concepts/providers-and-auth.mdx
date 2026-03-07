@@ -8,14 +8,15 @@ description: Provider coverage, key requirements, and routing behavior.
 | Provider | Capabilities | Key required |
 | --- | --- | --- |
 | `defillama` | chains/protocols + bridge analytics (`bridge list`, `bridge details`) | Route-specific |
-| `aave` | lend, yield | No |
-| `morpho` | lend, yield | No |
-| `kamino` | lend, yield (Solana mainnet) | No |
-| `across` | bridge quote | No |
-| `lifi` | bridge quote | No |
+| `aave` | lend (read + execution), yield (read + execution), rewards (execution) | No |
+| `morpho` | lend (read + execution), yield (read + execution) | No |
+| `kamino` | lend, yield (Solana mainnet, read only) | No |
+| `across` | bridge quote + execution | No |
+| `lifi` | bridge quote + execution | No |
 | `bungee` | bridge quote, swap quote | No (default mode) |
 | `1inch` | swap quote | Yes |
 | `uniswap` | swap quote | Yes |
+| `taikoswap` | swap quote + execution | No |
 | `jupiter` | swap quote (Solana) | Optional |
 | `fibrous` | swap quote | No |
 
@@ -39,9 +40,11 @@ If either is missing, bungee quotes use public backend.
 
 - Lending routes by `--provider` (`aave`, `morpho`, `kamino`) using direct adapters only.
 - `lend positions` currently supports `--provider aave|morpho`.
+- `yield positions` currently supports `--providers aave,morpho`.
 - `yield opportunities` aggregates direct providers and accepts `--providers aave,morpho,kamino`.
 - `yield history` uses the same direct providers and accepts `--providers aave,morpho,kamino`.
 - `bridge quote` and `swap quote` require explicit `--provider`; there are no implicit provider defaults.
+- Execution commands (`plan`, `run`, `submit`, `status`) require `--provider` for multi-provider surfaces.
 - Provider/chain-family mismatches fail fast with `unsupported` errors (for example `--provider jupiter` on EVM chains).
 
 ## Data caveats
