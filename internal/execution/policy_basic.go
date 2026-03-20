@@ -151,7 +151,11 @@ func validateSwapPolicy(action *Action, step *ActionStep, chainID int64, data []
 		}
 	case "tempo":
 		// Batched calls: validate each call individually.
-		if len(step.Calls) > 0 && strings.TrimSpace(step.Data) == "" {
+		// Always enter this path when Calls is populated, regardless of
+		// whether legacy Data is also set, to match validateStepPolicyCalls
+		// in the executor and prevent tampered actions from bypassing
+		// batched validation.
+		if len(step.Calls) > 0 {
 			return validateTempoSwapCalls(chainID, step.Calls, action, opts)
 		}
 		// Legacy single-target validation.

@@ -701,13 +701,14 @@ func stepCallToCallMsg(c StepCall, from common.Address) (ethereum.CallMsg, error
 // tempoFeeTokenSymbol returns a human-readable symbol for known Tempo fee token addresses.
 // Unknown addresses are returned as a truncated hex string (e.g. "0x20c0...0b50").
 func tempoFeeTokenSymbol(addr string) string {
-	// All known Tempo fee token addresses are USDC.e variants.
+	// Known Tempo fee token addresses.
 	// This can be extended with on-chain symbol() calls if needed.
 	normalized := strings.ToLower(strings.TrimSpace(addr))
 	switch normalized {
-	case "0x20c000000000000000000000b9537d11c60e8b50", // mainnet
-		"0x20c0000000000000000000000000000000000001": // testnet/devnet
+	case "0x20c000000000000000000000b9537d11c60e8b50": // mainnet USDC.e
 		return "USDC.e"
+	case "0x20c0000000000000000000000000000000000001": // testnet/devnet AlphaUSD
+		return "AlphaUSD"
 	default:
 		// Return a truncated address to avoid misleading labels.
 		if len(normalized) >= 10 {
