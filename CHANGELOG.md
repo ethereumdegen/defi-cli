@@ -35,7 +35,7 @@ Format:
 - Updated Tempo swap examples to use supported USD TIP-20 pairs and documented that the DEX auto-routes supported pairs through quote-token relationships.
 
 ### Security
-- None yet.
+- Bridge `submit` now validates canonical Across/LiFi execution targets on covered source chains before signing, while keeping `--unsafe-provider-tx` as the explicit provider-payload override.
 
 ## [v0.4.0] - 2026-03-07
 
