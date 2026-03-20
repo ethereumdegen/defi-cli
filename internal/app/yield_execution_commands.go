@@ -27,7 +27,7 @@ func (s *runtimeState) newYieldVerbExecutionCommand(verb actionbuilder.YieldVerb
 	expectedIntent := "yield_" + string(verb)
 
 	type yieldArgs struct {
-		Provider            string `json:"provider" flag:"provider" required:"true" enum:"aave,morpho"`
+		Provider            string `json:"provider" flag:"provider" required:"true" enum:"aave,morpho,moonwell"`
 		ChainArg            string `json:"chain" flag:"chain" required:"true" format:"chain"`
 		AssetArg            string `json:"asset" flag:"asset" required:"true" format:"asset"`
 		VaultAddress        string `json:"vault_address" flag:"vault-address" format:"evm-address"`
@@ -115,7 +115,7 @@ func (s *runtimeState) newYieldVerbExecutionCommand(verb actionbuilder.YieldVerb
 			return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, nil, cacheMetaBypass(), statuses, false)
 		},
 	}
-	planCmd.Flags().StringVar(&plan.Provider, "provider", "", "Yield provider (aave|morpho)")
+	planCmd.Flags().StringVar(&plan.Provider, "provider", "", "Yield provider (aave|morpho|moonwell)")
 	planCmd.Flags().StringVar(&plan.ChainArg, "chain", "", "Chain identifier")
 	planCmd.Flags().StringVar(&plan.AssetArg, "asset", "", "Asset symbol/address/CAIP-19")
 	planCmd.Flags().StringVar(&plan.VaultAddress, "vault-address", "", "Morpho vault address (required for --provider morpho)")

@@ -10,6 +10,7 @@ Format:
 ## [Unreleased]
 
 ### Added
+- Moonwell lending provider (Base, Optimism) — markets, rates, positions, yield opportunities/positions, and execution (supply, withdraw, borrow, repay).
 - Added `--chain` filter to `protocols fees` and `protocols revenue` to filter by chain presence (e.g. `protocols fees --chain Ethereum`). Supports combined `--category` and `--chain` filtering, consistent with `dexes volume --chain` behavior.
 - Added `--chain` filter to `protocols top` to rank protocols by chain-specific TVL (e.g. `protocols top --chain Ethereum`). When specified, TVL reflects the protocol's value locked on that chain rather than total TVL. Supports combined `--category` and `--chain` filtering. Output now includes `chains` count.
 - Added `protocols revenue` command to rank protocols by 24h revenue (protocol-retained fees) with 7d/30d totals and 1d/7d/1m percentage changes (no API key required, uses DefiLlama revenue API). Supports `--category` filter and `--limit`.
@@ -38,7 +39,7 @@ Format:
 - Tempo swap planning/quotes now validate TIP-20 currency metadata up front and return `unsupported` for non-USD assets or DEX reverts such as missing pairs, instead of reporting them as transient provider outages.
 
 ### Fixed
-- None yet.
+- Optimism USDC bootstrap address now points to native USDC (`0x0b2c...ff85`) instead of bridged USDC.e; added separate `USDC.e` entry for the bridged variant.
 
 ### Docs
 - Documented Tempo chain aliases, provider support, native DEX caveats, and execution examples across README, AGENTS, and Mintlify docs.

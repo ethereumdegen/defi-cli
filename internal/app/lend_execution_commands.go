@@ -30,7 +30,7 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 	expectedIntent := "lend_" + string(verb)
 
 	type lendArgs struct {
-		Provider            string `json:"provider" flag:"provider" required:"true" enum:"aave,morpho"`
+		Provider            string `json:"provider" flag:"provider" required:"true" enum:"aave,morpho,moonwell"`
 		ChainArg            string `json:"chain" flag:"chain" required:"true" format:"chain"`
 		AssetArg            string `json:"asset" flag:"asset" required:"true" format:"asset"`
 		MarketID            string `json:"market_id" flag:"market-id" format:"bytes32"`
@@ -120,7 +120,7 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 			return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, nil, cacheMetaBypass(), statuses, false)
 		},
 	}
-	planCmd.Flags().StringVar(&plan.Provider, "provider", "", "Lending provider (aave|morpho)")
+	planCmd.Flags().StringVar(&plan.Provider, "provider", "", "Lending provider (aave|morpho|moonwell)")
 	planCmd.Flags().StringVar(&plan.ChainArg, "chain", "", "Chain identifier")
 	planCmd.Flags().StringVar(&plan.AssetArg, "asset", "", "Asset symbol/address/CAIP-19")
 	planCmd.Flags().StringVar(&plan.MarketID, "market-id", "", "Morpho market unique key (required for --provider morpho)")
