@@ -13,6 +13,8 @@ func NormalizeLendingProvider(input string) string {
 		return "kamino"
 	case "moonwell", "moonwell-v2":
 		return "moonwell"
+	case "teller", "teller-v2", "teller-protocol":
+		return "teller"
 	default:
 		return strings.ToLower(strings.TrimSpace(input))
 	}

@@ -98,6 +98,12 @@ type LendRequest struct {
 	RPCURL              string
 	PoolAddress         string
 	PoolAddressProvider string
+
+	// Teller-specific fields
+	CollateralToken  string // collateral token address (required for teller borrow)
+	CollateralAmount string // collateral amount in base units (required for teller borrow)
+	LoanDuration     int    // loan duration in seconds (optional for teller borrow)
+	LoanID           int    // loan bid ID (required for teller repay)
 }
 
 type YieldVerb string
@@ -172,8 +178,31 @@ func (r *Registry) BuildLendAction(ctx context.Context, req LendRequest) (execut
 			RPCURL:          req.RPCURL,
 			MTokenAddress:   req.PoolAddress,
 		})
+	case "teller":
+		if strings.TrimSpace(req.OnBehalfOf) != "" {
+			return execution.Action{}, clierr.New(clierr.CodeUnsupported, "teller does not support --on-behalf-of")
+		}
+		verb := strings.ToLower(strings.TrimSpace(string(req.Verb)))
+		if verb != "borrow" && verb != "repay" {
+			return execution.Action{}, clierr.New(clierr.CodeUnsupported, "teller only supports borrow and repay actions")
+		}
+		return planner.BuildTellerLendAction(ctx, planner.TellerLendRequest{
+			Verb:             req.Verb,
+			Chain:            req.Chain,
+			Asset:            req.Asset,
+			AmountBaseUnits:  req.AmountBaseUnits,
+			Sender:           req.Sender,
+			Recipient:        req.Recipient,
+			Simulate:         req.Simulate,
+			RPCURL:           req.RPCURL,
+			PoolAddress:      req.PoolAddress,
+			CollateralToken:  req.CollateralToken,
+			CollateralAmount: req.CollateralAmount,
+			LoanDuration:     req.LoanDuration,
+			LoanID:           req.LoanID,
+		})
 	default:
-		return execution.Action{}, clierr.New(clierr.CodeUnsupported, "lend execution currently supports provider=aave|morpho|moonwell")
+		return execution.Action{}, clierr.New(clierr.CodeUnsupported, "lend execution currently supports provider=aave|morpho|moonwell|teller")
 	}
 }
 
@@ -270,7 +299,7 @@ func (r *Registry) BuildYieldAction(ctx context.Context, req YieldRequest) (exec
 		action.Metadata["yield_product"] = "moonwell_market"
 		return action, nil
 	default:
-		return execution.Action{}, clierr.New(clierr.CodeUnsupported, "yield execution currently supports provider=aave|morpho|moonwell")
+		return execution.Action{}, clierr.New(clierr.CodeUnsupported, "yield execution currently supports provider=aave|morpho|moonwell (teller is borrow-only)")
 	}
 }
 

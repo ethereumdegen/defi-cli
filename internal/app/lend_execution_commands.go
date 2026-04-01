@@ -29,7 +29,7 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 	expectedIntent := "lend_" + string(verb)
 
 	type lendArgs struct {
-		Provider            string `json:"provider" flag:"provider" required:"true" enum:"aave,morpho,moonwell"`
+		Provider            string `json:"provider" flag:"provider" required:"true" enum:"aave,morpho,moonwell,teller"`
 		ChainArg            string `json:"chain" flag:"chain" required:"true" format:"chain"`
 		AssetArg            string `json:"asset" flag:"asset" required:"true" format:"asset"`
 		MarketID            string `json:"market_id" flag:"market-id" format:"bytes32"`
@@ -44,6 +44,11 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 		RPCURL              string `json:"rpc_url" flag:"rpc-url" format:"url"`
 		PoolAddress         string `json:"pool_address" flag:"pool-address" format:"evm-address"`
 		PoolAddressProvider string `json:"pool_address_provider" flag:"pool-address-provider" format:"evm-address"`
+		// Teller-specific fields
+		CollateralToken  string `json:"collateral_token" flag:"collateral-token" format:"evm-address"`
+		CollateralAmount string `json:"collateral_amount" flag:"collateral-amount" format:"base-units"`
+		LoanDuration     int    `json:"loan_duration" flag:"loan-duration"`
+		LoanID           int    `json:"loan_id" flag:"loan-id"`
 	}
 	type lendSubmitArgs struct {
 		ActionID           string  `json:"action_id" flag:"action-id" required:"true" format:"action-id"`
@@ -89,6 +94,10 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 			RPCURL:              args.RPCURL,
 			PoolAddress:         args.PoolAddress,
 			PoolAddressProvider: args.PoolAddressProvider,
+			CollateralToken:     args.CollateralToken,
+			CollateralAmount:    args.CollateralAmount,
+			LoanDuration:        args.LoanDuration,
+			LoanID:              args.LoanID,
 		})
 	}
 
@@ -127,7 +136,7 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 			return s.emitSuccess(trimRootPath(cmd.CommandPath()), action, identity.Warnings, cacheMetaBypass(), statuses, false)
 		},
 	}
-	planCmd.Flags().StringVar(&plan.Provider, "provider", "", "Lending provider (aave|morpho|moonwell)")
+	planCmd.Flags().StringVar(&plan.Provider, "provider", "", "Lending provider (aave|morpho|moonwell|teller)")
 	planCmd.Flags().StringVar(&plan.ChainArg, "chain", "", "Chain identifier")
 	planCmd.Flags().StringVar(&plan.AssetArg, "asset", "", "Asset symbol/address/CAIP-19")
 	planCmd.Flags().StringVar(&plan.MarketID, "market-id", "", "Morpho market unique key (required for --provider morpho)")
@@ -140,8 +149,12 @@ func (s *runtimeState) newLendVerbExecutionCommand(verb planner.AaveLendVerb, sh
 	planCmd.Flags().Int64Var(&plan.InterestRateMode, "interest-rate-mode", 2, "Aave borrow/repay mode (1=stable,2=variable)")
 	planCmd.Flags().BoolVar(&plan.Simulate, "simulate", true, "Include simulation checks during execution")
 	planCmd.Flags().StringVar(&plan.RPCURL, "rpc-url", "", "RPC URL override for the selected chain")
-	planCmd.Flags().StringVar(&plan.PoolAddress, "pool-address", "", "Aave pool address override")
+	planCmd.Flags().StringVar(&plan.PoolAddress, "pool-address", "", "Pool address (Aave pool or Teller pool)")
 	planCmd.Flags().StringVar(&plan.PoolAddressProvider, "pool-address-provider", "", "Aave pool address provider override")
+	planCmd.Flags().StringVar(&plan.CollateralToken, "collateral-token", "", "Collateral token address (required for teller borrow)")
+	planCmd.Flags().StringVar(&plan.CollateralAmount, "collateral-amount", "", "Collateral amount in base units (required for teller borrow)")
+	planCmd.Flags().IntVar(&plan.LoanDuration, "loan-duration", 0, "Loan duration in seconds (teller borrow, defaults to 30 days)")
+	planCmd.Flags().IntVar(&plan.LoanID, "loan-id", 0, "Loan bid ID (required for teller repay)")
 	_ = planCmd.MarkFlagRequired("chain")
 	_ = planCmd.MarkFlagRequired("asset")
 	_ = planCmd.MarkFlagRequired("provider")
